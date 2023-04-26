@@ -1,0 +1,44 @@
+---
+title: "Differential expression analysis by DESeq2"
+output: html_document
+---
+
+## Analysis of mRNA abundance changes from RNA-Seq experiment
+
+```{r}
+library(data.table)
+library(dplyr)
+library(DESeq2)
+```
+
+DESeq
+```{r}
+# countData
+tab <- read.csv("../../Data/RNAseq-Riboseq/pab1_strains_RSEM_expected_count_isoforms.results.csv")
+rownames(tab) <- tab$transcript_id
+tab <- tab[, colnames(tab)[grepl(pattern = "^RNA.*", x = colnames(tab))]]
+tab <- round(x = tab, digits = 0)
+tab <- tab[rowSums(tab) > 0, ] # Remove rows with no reads in any samples
+
+# colData
+cdt <- data.frame(fullname = colnames(tab))
+cdt$strain <- sub("RNA_", "", cdt$fullname)
+cdt$strain <- sub("_rep[0-9]", "", cdt$strain)
+```
+```{r}
+dds <- DESeqDataSetFromMatrix(countData = tab, colData = cdt, design = ~strain)
+dds$strain <- relevel(dds$strain, ref = "WT")
+DGE <- DESeq(dds)
+```
+
+results
+```{r}
+res_t <- list()
+res_t[["pbp1\u0394 / WT"]] <- results(DGE, contrast = c("strain", "pbp1d", "WT"), pAdjustMethod = "fdr", tidy = TRUE, independentFiltering = TRUE, alpha = 0.01)
+res_t[["pab1\u0394pbp1\u0394 / WT"]] <- results(DGE, contrast = c("strain", "pab1d_pbp1d", "WT"), pAdjustMethod = "fdr", tidy = TRUE, independentFiltering = TRUE, alpha = 0.01)
+res_t[["pab1\u0394pbp1\u0394 / pbp1\u0394"]] <- results(DGE, contrast = c("strain","pab1d_pbp1d", "pbp1d"), pAdjustMethod = "fdr", tidy = TRUE, independentFiltering = TRUE, alpha = 0.01)
+openxlsx::write.xlsx(list('pbp1d vs WT' = res_t$`pbp1Δ / WT`, 'pab1d_pbp1d vs WT' = res_t$`pab1Δpbp1Δ / WT`, "pab1d_pbp1d vs pbp1d" = res_t$`pab1Δpbp1Δ / pbp1Δ`), file = "pab1_RNAseq_DESeq2.xlsx")
+
+res_t2 <- bind_rows(res_t, .id = "pair")
+write.csv(res_t2, file = "pab1_RNAseq_DESeq2.csv", row.names = FALSE, quote = FALSE)
+```

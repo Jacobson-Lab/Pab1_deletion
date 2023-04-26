@@ -1,0 +1,90 @@
+---
+title: "Protein abundance changes analysis by limma"
+output: html_document
+---
+
+## Analysis of protein abundance changes from TMT10plex mass spec experiment
+
+Load and cleanup mass spec data
+```{r}
+library(dplyr)
+df <- readxl::read_xlsx("../../Data/Mass spec/Mass_spec_TMT10plex_offlinefractionated_log2_normalized_intensity_median_normalization.xlsx")
+df$`Alternate ID` <- gsub(".*GN=", "", df$`Identified Proteins (2884)`)
+df$`Alternate ID` <- sub(" .*", "", df$`Alternate ID`)
+TMTcols <- colnames(df)[grepl(pattern = "^TMT.*", x = colnames(df))]
+df <- df[, c("Alternate ID", TMTcols)]
+colnames(df) <- c("Protein", "WT_1", "WT_3", "WT_2", "pab1d_1", "pab1d_3", "pab1d_2", "pbp1d_2", "pbp1d_1", "pbp1d_3")
+df <- df[-which(df$WT_1 == "No data"), ]   # Remove rows with no data
+df[df == "Value missing"] <- NA            # Replace "Value missing" with NA
+df[2:10] <- sapply(df[2:10], as.numeric)   # Convert data to numeric
+df <- df[which(!is.na(df$Protein)), ]      # Remove NA rows
+dat <- as.data.frame(df[, 2:10])
+rownames(dat) <- df$Protein
+```
+
+Correlation matrix (correlation between replicates and samples)
+```{r}
+cor.mat <- cor(dat, method = "pearson", use = "pairwise.complete.obs")
+```
+
+DE by limma
+```{r}
+library(limma)
+# Function to perform DE between two samples
+eb_fit <- function(dat) { # dat: dataframe with 3 Denominator (reference) columns followed by 3 Numerator columns
+  # Set up design matrix
+  group <- factor(rep(c("D", "N"), each = 3))
+  group <- factor(group, levels = c("D", "N"))
+  design_matrix <- model.matrix(~0+group)
+  # Set up contrast matrix
+  cont <- makeContrasts(log2FC = groupN-groupD, levels = colnames(design_matrix))
+  # Run limma
+  fit <- lmFit(dat, design_matrix)
+  fit <- contrasts.fit(fit, contrasts = cont)
+  fit.eb <- eBayes(fit)
+  res <- topTable(fit.eb, number = Inf, adjust.method = "BH")
+  res$Protein <- rownames(res)
+  return(res)
+}
+```
+```{r}
+eb_res <- list()
+eb_res[["pbp1Δ / WT"]] <- eb_fit(dat = dat[, c(1:3, 7:9)])
+eb_res[["pab1Δpbp1Δ / WT"]] <- eb_fit(dat = dat[, c(1:3, 4:6)])
+eb_res[["pab1Δpbp1Δ / pbp1Δ"]] <- eb_fit(dat = dat[, c(7:9, 4:6)])
+openxlsx::write.xlsx(list('pbp1d vs WT' = eb_res$`pbp1Δ / WT`, 'pab1d_pbp1d vs WT' = eb_res$`pab1Δpbp1Δ / WT`, "pab1d_pbp1d vs pbp1d" = eb_res$`pab1Δpbp1Δ / pbp1Δ`), file = "pab1_mass_spec_limma.xlsx")
+
+eb_res2 <- bind_rows(eb_res, .id = "pair")
+write.csv(eb_res2, file = "pab1_mass_spec_limma.csv", row.names = FALSE, quote = FALSE)
+```
+
+Gene ontology analysis of DE proteins in pab1Δpbp1Δ / pbp1Δ
+```{r}
+source("../functions_misc.R")
+de <- add_sig_fc(df = eb_res$`pab1Δpbp1Δ / pbp1Δ`, pval_col = "adj.P.Val", pval_cutoff = 0.015, log2FC_col = "logFC", log2FC_cutoff = 0)
+de <- de[which(de$changes != "Unchanged"), ] 
+de <- de[which(!(de$Protein %in% c("PAB1", "PBP1", "URA3"))), ] 
+  # Exclude PAB1 and PBP1 because they were deleted. Exclude URA3 because it was used as a selection marker for PBP1 deletion.
+de <- split(de, de$changes)
+de <- lapply(de, function(x) x$Protein)
+```
+```{r}
+library(gprofiler2)
+gostres <- gost(query = de, organism = "scerevisiae")
+
+# Export results as Excel
+xx <- gostres$result
+xx$parents <- as.character(xx$parents) # parents column is list. Convert to character before exporting
+xx <- split(xx, xx$query)
+openxlsx::write.xlsx(list('Up' = xx$Up, 'Down' = xx$Down), file = "pab1_mass_spec_gene_ontology_pab1d-vs-pbp1d.xlsx")
+
+# Plot results
+gp <- gostplot(gostres, capped = TRUE, interactive = FALSE)
+tohighlight <- c(gostres$result[grepl(pattern = "translation", x = gostres$result$term_name), ]$term_id,
+                 gostres$result[grepl(pattern = "ribosom", x = gostres$result$term_name), ]$term_id)
+gpp <- publish_gostplot(gp, highlight_terms = tohighlight, 
+                       width = 7.5, height = 4, filename = NULL)
+
+gp2 <- gostplot(gostres, capped = TRUE, interactive = TRUE)
+htmlwidgets::saveWidget(gp2, file = "pab1_mass_spec_gene_ontology_pab1d-vs-pbp1d.html")
+```

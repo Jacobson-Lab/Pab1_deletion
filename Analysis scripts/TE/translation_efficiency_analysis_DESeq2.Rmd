@@ -1,0 +1,493 @@
+---
+title: "Translation efficiency (TE)"
+output: html_document
+---
+
+## Analysis of changes in translation efficiency (TE)
+
+```{r}
+library(data.table)
+library(dplyr)
+library(DESeq2)
+library(rstatix)
+library(rcompanion)
+library(ggplot2)
+source("../functions_misc.R")
+```
+
+DESeq
+```{r}
+# countData
+tab <- read.csv("../../Data/RNAseq-Riboseq/pab1_strains_RSEM_expected_count_isoforms.results.csv")
+rownames(tab) <- tab$transcript_id
+tab <- tab[, colnames(tab)[!grepl(pattern = "^RPF.*", x = colnames(tab))]]
+tab <- round(x = tab[, -1], digits = 0)
+tab <- tab[rowSums(tab) > 0, ] # Remove rows with no reads in any samples
+
+# colData
+cdt <- data.frame(fullname = colnames(tab))
+cdt$strain <- sub("^RNA_", "", cdt$fullname)
+cdt$strain <- sub("^CDS_", "", cdt$strain)
+cdt$strain <- sub("_rep[0-9]", "", cdt$strain)
+cdt$type <- sub("_.*", "", cdt$fullname)
+```
+```{r}
+dds <- DESeqDataSetFromMatrix(countData = tab, colData = cdt, design = ~strain + strain:type)
+dds$strain <- relevel(dds$strain, ref = "WT")
+dds$type <- relevel(dds$type, ref = "RNA")
+DGE <- DESeq(dds)
+```
+
+results TE pairwise comparison
+```{r}
+resultsNames(DGE)
+res_t <- list()
+res_t[["pbp1\u0394 / WT"]] <- results(DGE, contrast = list(c("strainpbp1d.typeCDS"), c("strainWT.typeCDS")), pAdjustMethod = "fdr", alpha = 0.01, independentFiltering = TRUE, tidy = TRUE)
+res_t[["pab1\u0394pbp1\u0394 / WT"]] <- results(DGE, contrast = list(c("strainpab1d_pbp1d.typeCDS"), c("strainWT.typeCDS")), pAdjustMethod = "fdr", alpha = 0.01, independentFiltering = TRUE, tidy = TRUE)
+res_t[["pab1\u0394pbp1\u0394 / pbp1\u0394"]] <- results(DGE, contrast = list(c("strainpab1d_pbp1d.typeCDS"), c("strainpbp1d.typeCDS")), pAdjustMethod = "fdr", alpha = 0.01, independentFiltering = TRUE, tidy = TRUE)
+openxlsx::write.xlsx(list('pbp1d vs WT' = res_t$`pbp1Δ / WT`, 'pab1d_pbp1d vs WT' = res_t$`pab1Δpbp1Δ / WT`, "pab1d_pbp1d vs pbp1d" = res_t$`pab1Δpbp1Δ / pbp1Δ`), file = "pab1_TE_DESeq2.xlsx")
+
+res_t2 <- bind_rows(res_t, .id = "pair")
+write.csv(res_t2, file = "pab1_TE_DESeq2.csv", row.names = FALSE, quote = FALSE)
+```
+
+### Features of "Up" and "Down" mRNAs from pab1Δpbp1Δ vs. pbp1Δ comparison
+
+Define "Up" and "Down" mRNAs
+```{r}
+res_TE <- read.csv("pab1_TE_DESeq2.csv")
+res_TE <- add_sig_fc(df = res_TE, pval_col = "padj", pval_cutoff = 0.05, log2FC_col = "log2FoldChange", log2FC_cutoff = 0,
+                     plot_fc_cutoff = 5, plot_pval_cutoff = 10^-15)
+res_TE$changes <- factor(res_TE$changes, levels = c("Up", "Down", "Unchanged"))
+PPvP <- res_TE[which(res_TE$pair == "pab1Δpbp1Δ / pbp1Δ"), ]
+te_up <- PPvP[which(PPvP$changes == "Up"), ]$row
+te_down <- PPvP[which(PPvP$changes == "Down"), ]$row
+```
+```{r}
+# Volcano plot
+nn <- data.frame(table(pair = res_TE$pair, changes = res_TE$changes))
+nn$ypos <- rep(c(10, 7.5, 5), each = 3)
+p_TE_main <- plot_volcano(res = res_TE[which(res_TE$pair == "pab1Δpbp1Δ / pbp1Δ"), ], 
+                          nn = nn[which(nn$pair == "pab1Δpbp1Δ / pbp1Δ"), ], xlabel = "in TE", 
+                          point_label = NULL)
+```
+
+Prepare table of mRNA features
+```{r}
+# Initiation features
+feature_initiation <- read.csv("../../Data/mRNA features/mRNA_features_initiation.csv")
+
+# Termination features
+feature_termination <- read.csv("../../Data/mRNA features/mRNA_features_termination.csv")
+
+# Readthrough efficiency
+RE <- read.csv("../Readthrough/pab1_strains_readthrough_efficiency.csv")
+RE <- RE[which(RE$strain == "pab1d"), c("transcript", "rpkm_cds", "rpkm_ext", "rte_ext")]
+
+# poly(A) tracts
+polyA <- read.csv("../../Data/mRNA features/polyA_tracts.csv")
+
+# oligo(U)
+oligoU <- read.csv("../../Data/mRNA features/oligoU.csv")
+
+# Combine feature files
+features <- left_join(feature_initiation, select(feature_file, -c("l_tr", "l_utr5", "l_cds", "l_utr3", "random_factor", "random_num")), by = "transcript", suffix = c("", "_stop"))
+features <- left_join(features, RE, by = "transcript")
+features <- left_join(features, polyA, by = "transcript")
+features <- left_join(features, oligoU, by = "transcript", suffix = c("", "_U"))
+rm(feature_initiation, feature_termination, RE, polyA, oligoU)
+features$TE_change_PPvsP <- "Reference"
+
+# Join combined features to TE data
+te_up_df <- features[which(features$transcript %in% te_up), ]
+te_up_df$TE_change_PPvsP <- "Up"
+te_down_df <- features[which(features$transcript %in% te_down), ]
+te_down_df$TE_change_PPvsP <- "Down"
+ud <- rbind(te_up_df, te_down_df)
+ud <- rbind(ud, features)
+ud$TE_change_PPvsP <- factor(ud$TE_change_PPvsP, levels = c("Reference", "Up", "Down"))
+ud <- left_join(ud, PPvP[, c("row", "baseMean", "log2FoldChange")], by = c("transcript" = "row"))
+rm(te_up_df, te_down_df, features)
+
+genes_with_UTRs <- scan("../../Data/reference_set_2693_genes.txt", character())
+udf <- ud[which(ud$transcript %in% genes_with_UTRs), ]
+udf <- udf[which(udf$l_utr5 > 18 & udf$l_utr3 > 16), ] # This is limit in 5'-UTR and 3'-UTR lengths is for exploring nucleotide identity surrounding start / stop such that these nucleotides do not include the start / stop codons themselves and CDS positions
+```
+
+#### eIF4G
+
+Compare to eIF4G depletion data from Park et al. 2011
+```{r}
+park1 <- list()
+sheets <- c("p<0.1,TEg 0.71 TEwt", "p<0.1,TEg 1.4 TEwt")
+for (i in sheets) {
+  park1[[i]] <- as.data.frame(readxl::read_xls("../../Data/Park_2011_12864_2010_3204_MOESM1_ESM.XLS", sheet = i))
+  park1[[i]]$GENE_NAME <- sub("$", "_mRNA", park1[[i]]$GENE_NAME)
+}
+
+library(ggVennDiagram)
+ggVennDiagram(x = list(eIF4Gd_Up = park1$`p<0.1,TEg 1.4 TEwt`$GENE_NAME, 
+                       Pab1d_Up = ud[which(ud$TE_change_PPvsP == "Up"), ]$transcript))
+ggVennDiagram(x = list(eIF4Gd_Down = park1$`p<0.1,TEg 0.71 TEwt`$GENE_NAME, 
+                       Pab1d_Down = ud[which(ud$TE_change_PPvsP == "Down"), ]$transcript))
+```
+
+Compare to RIP-seq data from Costello et al. 2015
+```{r}
+costello2 <- list()
+sheets <- c("eIF4G1", "eIF4G2", "Pab1p")
+for (i in sheets) {
+  costello2[[i]] <- as.data.frame(readxl::read_xlsx("../../Data/Costello_2015_13059_2014_559_MOESM2_ESM.xlsx", sheet = i))
+  costello2[[i]]$genes <- sub("$", "_mRNA", costello2[[i]]$genes)
+}
+
+analyze_costello <- function(ud, IP_data = "eIF4G1") {
+  udf_c2 <- left_join(ud, costello2[[IP_data]], by = c("transcript" = "genes"))
+  udf_c2$dir <- "Unchanged"
+  udf_c2[which(udf_c2$FDR < 0.05 & udf_c2$logFC > 0), ]$dir <- "Enriched in IP"
+  udf_c2[which(udf_c2$FDR < 0.05 & udf_c2$logFC < 0), ]$dir <- "Depleted in IP"
+  pp <- table(udf_c2$TE_change_PPvsP, udf_c2$dir)
+  require(rcompanion)
+  chi_res <- pairwiseNominalIndependence(pp, method = "BH")
+  ppm <- as.data.frame(pp)
+  ppm <- ppm %>% group_by(Var1) %>% mutate(percent = 100*Freq/sum(Freq))
+  res_list <- list(chi_res = chi_res, freq_res = ppm)
+  return(res_list)
+}
+
+res_ripseq <- sapply(names(costello2), function(x) analyze_costello(ud = ud, IP_data = x), simplify = FALSE, USE.NAMES = TRUE)
+```
+```{r}
+# Plot frequencies
+aa <- bind_rows(lapply(res_ripseq, function(x) x$freq_res), .id = "IP")
+aa$Var2 <- factor(aa$Var2, levels = c("Depleted in IP", "Unchanged", "Enriched in IP"))
+colnames(aa)[2:3] <- c("TE_change", "IP_change")
+write.csv(aa, file = "../../Figures/data/Fig4B_RIPseq.csv", quote = FALSE, row.names = FALSE)
+
+p_ripseq <- ggplot(aa, aes(x = TE_change, y = percent, fill = IP_change)) + 
+  geom_col(position = "stack", color = "grey50") + 
+  geom_text(aes(label = paste0(Freq, "\n(", round(percent), "%)")), 
+            position = position_stack(vjust = 0.5), size = 6/.pt) +
+  facet_wrap(~IP, nrow = 1) +
+  scale_fill_manual(name = "RIP-seq: ", values = c("#F8766D", "grey50", "#00B0F6")) +
+  scale_x_discrete(labels = c(Reference = "Ref.", Up = "Up", Down = "Down")) + 
+  xlab("") + ylab("Percentage") +
+  theme_bw(base_size = 10) + 
+    theme(strip.background = element_rect(fill = "white"), panel.grid = element_blank(), 
+          axis.title.x = element_blank(), legend.position = "top")
+```
+
+#### Length of mRNA regions
+
+```{r}
+plot_compare_lengths <- function(udf, col_name = "l_cds", xlabel = "in TE", ylabel = "CDS length (nt)", n_ypos = 10, 
+                                 y_log_transformation = "log10") {
+  udf <- udf[, c("TE_change_PPvsP", col_name)]
+  colnames(udf)[2] <- "l"
+  if (y_log_transformation == "none") {
+    udf$logl <- udf$l
+  } else if (y_log_transformation == "log10") {
+    udf$logl <- log10(udf$l) 
+  } else {
+    message("Invalid option")
+  }
+  comps <- get_comparisons(udf, "TE_change_PPvsP")
+  stat.test <- udf %>%
+    wilcox_test(logl~TE_change_PPvsP, p.adjust.method = "BH", paired = FALSE, comparisons = comps) %>%
+    add_significance() %>% add_xy_position(step.increase = 0.3)
+  nn <- data.frame(table(TE_change_PPvsP = udf$TE_change_PPvsP))
+  p <- ggplot(udf, aes(x = TE_change_PPvsP, y = l)) + 
+    geom_boxplot(outlier.alpha = 0.3, aes(fill = TE_change_PPvsP), show.legend = FALSE) + 
+    geom_text(data = nn, aes(x = TE_change_PPvsP, y = n_ypos, label = paste0("n = ", Freq)), size = 7/.pt) +
+    stat_pvalue_manual(data = stat.test, label = "p.adj.signif", tip.length = 0.01, size = 7/.pt, vjust = 0.5, hide.ns = TRUE) +
+    scale_fill_manual(values = c(Up = "orange", Down = "purple", Reference = "white")) +
+    scale_x_discrete(labels = c(Reference = "Ref.", Up = "Up", Down = "Down")) + 
+    xlab(bquote(log[2] ~ "fold change" ~ .(xlabel))) + ylab(ylabel) +
+    theme_bw(base_size = 10) + 
+    theme(strip.background = element_rect(fill = "white"), panel.grid = element_blank(), axis.title.x = element_text(face = "italic"),
+          legend.position = "none")
+  if (y_log_transformation == "log10") {
+    p <- p + scale_y_log10()
+  }
+  return(p)
+}
+
+p5 <- plot_compare_lengths(udf = udf, col_name = "l_utr5", xlabel = "in TE", ylabel = "5'-UTR length (nt)", n_ypos = 10)
+pc <- plot_compare_lengths(udf = udf, col_name = "l_cds", xlabel = "in TE", ylabel = "CDS length (nt)", n_ypos = 50)
+p3 <- plot_compare_lengths(udf = udf, col_name = "l_utr3", xlabel = "in TE", ylabel = "3'-UTR length (nt)", n_ypos = 10)
+pm <- plot_compare_lengths(udf = udf, col_name = "l_tr", xlabel = "in TE", ylabel = "mRNA length (nt)", n_ypos = 200)
+```
+
+#### Readthrough
+
+Detectable readthrough
+```{r}
+udff <- udf[which(udf$rpkm_cds > 2 & udf$rpkm_ext > 0.1), ] # 1490 mRNAs
+udfrt <- table(udf$TE_change_PPvsP, udf$transcript %in% udff$transcript)
+pairwise_fisher_test(xtab = udfrt, p.adjust.method = "BH", detailed = TRUE)
+
+udfrt2 <- as.data.frame(udfrt)
+udfrt2 <- udfrt2 %>% group_by(Var1) %>% mutate(percent = 100*Freq/sum(Freq))
+udfrt2$Var2 <- recode_factor(udfrt2$Var2, `TRUE` = "Yes", `FALSE` = "No")
+p_ref <- ggplot(udfrt2, aes(x = Var1, y = percent, fill = Var2)) + 
+  geom_col(position = "stack") + 
+  geom_text(aes(label = paste0(Freq, "\n(", round(percent), "%)")), 
+            position = position_stack(vjust = 0.5), size = 7/.pt) +
+  scale_fill_manual(name = "Readthrough detected: ", values = c("forestgreen", "grey50")) +
+  scale_x_discrete(labels = c(Reference = "Ref.", Up = "Up", Down = "Down")) + 
+  xlab("") + ylab("Percentage") +
+  theme_bw(base_size = 10) + 
+    theme(strip.background = element_rect(fill = "white"), panel.grid = element_blank(), 
+          axis.title.x = element_blank(), legend.position = "top") +
+  guides(fill = guide_legend(title.position = "top"))
+```
+
+Readthrough efficiency
+```{r}
+udff <- udf[which(udf$rpkm_cds > 2 & udf$rpkm_ext > 0.1), ] # 1490 mRNAs
+udff$log_rte <- log2(udff$rte_ext)
+p_re <- plot_compare_lengths(udf = udff, col_name = "log_rte", xlabel = "in TE", ylabel = "Readthrough efficiency", n_ypos = -12, y_log_transformation = "none")
+```
+
+#### Sequence motif
+
+```{r}
+analyze_motif <- function(udf, condition = list(udf$utr5_n_tracts > 0), facet_label = list("5'-UTR"), 
+                          legend_label = "poly(A) tract present: ") {
+  c_len <- length(condition)
+  f_len <- length(facet_label)
+  if (c_len == f_len) {
+    fisher_res <- list()
+    df_list <- list()
+    for (i in 1:c_len) {
+      udm <- table(TE_change = udf$TE_change_PPvsP, motif = condition[[i]])
+      require(rstatix)
+      fisher_res[[facet_label[[i]]]] <- pairwise_fisher_test(xtab = udm, p.adjust.method = "BH", detailed = TRUE)
+      udm <- as.data.frame(udm)
+      udm$motif <- recode_factor(udm$motif, `TRUE` = "Yes", `FALSE` = "No")
+      udm <- udm %>% group_by(TE_change) %>% mutate(percent = 100*Freq/sum(Freq))
+      df_list[[facet_label[[i]]]] <- udm
+    }
+    df <- bind_rows(df_list, .id = "facet_label")
+    df$facet_label <- factor(df$facet_label, levels = unlist(facet_label))
+    p <- ggplot(df, aes(x = TE_change, y = percent, fill = motif)) + 
+      geom_col(position = "stack") + 
+      geom_text(aes(label = paste0(Freq, "\n(", round(percent), "%)")), 
+                position = position_stack(vjust = 0.5), size = 7/.pt) +
+      facet_wrap(~facet_label) +
+      scale_fill_manual(name = legend_label, values = c(Yes = "forestgreen", No = "grey50")) +
+      scale_x_discrete(labels = c(Reference = "Ref.", Up = "Up", Down = "Down")) + 
+      xlab("") + ylab("Percentage") +
+      theme_bw(base_size = 10) + 
+        theme(strip.background = element_rect(fill = "white"), panel.grid = element_blank(), 
+              axis.title.x = element_blank(), legend.position = "top") +
+      guides(fill = guide_legend(title.position = "top"))
+  } else {
+    message("Number of conditions and number of facet_label must match")
+  }
+  res_list <- list(fisher_res = fisher_res, plot_res = p)
+  return(res_list)
+}
+```
+
+poly(A) tracts in the UTRs
+```{r}
+# 5'-UTR
+ud5_A <- analyze_motif(udf = udf, condition = list(udf$utr5_n_tracts > 0), facet_label = list("5'-UTR"), 
+                       legend_label = "poly(A) tract present: ")
+ud5_A$fisher_res
+
+# 3'-UTR
+ud3_A <- analyze_motif(udf = udf, condition = list(udf$utr3_n_tracts > 0), facet_label = list("3'-UTR"), 
+                       legend_label = "poly(A) tract present: ")
+ud3_A$fisher_res
+```
+
+oligo(U) in the 5'-UTR
+```{r}
+# 5'-UTR
+ud5_U <- analyze_motif(udf = udf, condition = list(udf$utr5_n_tracts_U > 0), facet_label = list("5'-UTR"), 
+                       legend_label = "oligo(U) present: ")
+ud5_U$fisher_res
+```
+
+uORFs in the 5'-UTR
+```{r}
+uu <- colnames(udf)[grepl(pattern = "uORF", x = colnames(udf))]
+udfu <- udf[, c("TE_change_PPvsP", uu)]
+udfu[is.na(udfu$uORF_count_overlap), ]$uORF_count_overlap <- 0
+udfu[is.na(udfu$uORF_count_upstream), ]$uORF_count_upstream <- 0
+udfu$uORF_count_all <- udfu$uORF_count_overlap + udfu$uORF_count_upstream
+
+uorf <- analyze_motif(udf = udfu, condition = list(udfu$uORF_count_all > 0, udfu$uORF_count_upstream > 0, udfu$uORF_count_overlap > 0), 
+                      facet_label = list("Any", "Upstream", "Overlapping"), 
+                      legend_label = "uORF present: ")
+```
+
+STREME results
+```{r}
+# https://meme-suite.org/meme/tools/streme
+  # Select the type of control sequences to use: User-provided sequences 
+  # Input sequences: 5'-UTR or 3'-UTR sequences of mRNAs in TE up or down group
+  # Control sequences: 5'-UTR or 3'-UTR sequences of mRNAs in Reference
+  # Advanced options: Minimum width = 3, Maximum width = 6 or 15, default for other parameters
+library(ggseqlogo)
+```
+```{r}
+# Motif enriched in 5'-UTR sequences of TE down group vs Reference
+down5_res <- read.table("./STREME/streme_TE_down-vs-Ref_seq_utr5_3-6nt.txt", skip = 29, fill = TRUE, flush = TRUE)
+down5 <- down5_res[3:7, 1:4]
+down5 <- apply(down5, 1, as.numeric)
+rownames(down5) <- c("A", "C", "G", "U")
+pval <- as.numeric(down5_res[2, 10])/4 # Four motifs were reported
+
+down5_list <- list()
+down5_list[[paste0("Enriched in 5'-UTR sequences\nDown vs. Ref., p = ", pval)]] <- down5
+plogo_down5 <- ggseqlogo(down5_list) + theme_logo(base_size = 10)
+```
+```{r}
+# Motif enriched in 3'-UTR sequences of TE Up group vs Reference
+up3_res <- read.table("./STREME/streme_TE_up-vs-Ref_seq_utr3_3-6nt.txt", skip = 29, fill = TRUE, flush = TRUE)
+up3 <- up3_res[3:8, 1:4]
+up3 <- apply(up3, 1, as.numeric)
+rownames(up3) <- c("A", "C", "G", "U")
+pval <- as.numeric(up3_res[2, 10])/4
+
+up3_list <- list()
+up3_list[[paste0("Enriched in 3'-UTR sequences\nUp vs. Ref., p = ", pval)]] <- up3
+plogo_up3 <- ggseqlogo(up3_list) + theme_logo(base_size = 10)
+```
+
+#### Nucleotide identities near 5'cap, start codon
+
+Chi-square analysis to compare proportion and calculate ratio change for Up or Down vs Ref.
+```{r}
+compare_chisq <- function(udf, var = "nt_p04") {
+  df <- with(udf, table(TE_change_PPvsP, get(var)))
+  chires <- pairwiseNominalIndependence(df, method = "BH")
+  res <- data.frame(df)
+  res <- res %>% group_by(TE_change_PPvsP) %>% mutate(fraction = Freq/sum(Freq))
+  ref <- res[which(res$TE_change_PPvsP == "Reference"), ]
+  res <- left_join(res, ref[, c("Var2", "fraction")], by = "Var2", suffix = c("", "_Reference"))
+  res$fraction_ratio <- res$fraction / res$fraction_Reference
+  res$log2_fraction_ratio <- log2(res$fraction_ratio)
+  res$chisq_padj <- NA
+  res[which(res$TE_change_PPvsP == "Up"), ]$chisq_padj <- chires[which(chires$Comparison == "Reference : Up"), ]$p.adj.Chisq
+  res[which(res$TE_change_PPvsP == "Down"), ]$chisq_padj <- chires[which(chires$Comparison == "Reference : Down"), ]$p.adj.Chisq
+  res$chisq_padj_UPvsDown <- chires[which(chires$Comparison == "Up : Down"), ]$p.adj.Chisq
+  return(res)
+}
+```
+```{r}
+nts <- colnames(udf)[grepl(pattern = "^nt_.*[0-9][0-9]$", x = colnames(udf))]
+ntdf_res <- lapply(nts, function(x) compare_chisq(udf, var = x))
+names(ntdf_res) <- nts
+ntdf <- bind_rows(ntdf_res, .id = "position")
+ntdf <- ntdf[!is.na(ntdf$chisq_padj), ]
+ntdf$Var2 <- sub("T", "U", ntdf$Var2)
+ntdf$sign <- ifelse(test = grepl(pattern = "_m", x = ntdf$position), yes = "-", no = "+")
+ntdf$num <- as.numeric(sub("nt_[a-z]?", "", ntdf$position))
+ntdf[grepl(pattern = "_p", x = ntdf$position), ]$num <- ntdf[grepl(pattern = "_p", x = ntdf$position), ]$num + 1 # In the analysis, AUG is considered 0 +1 +2, so the nucloetide positions after it have to be fixed for plotting and the convension of AUG being +1 +2 +3
+ntdf$pos <- paste(ntdf$sign, ntdf$num)
+ntdf$from <- ifelse(test = grepl(pattern = "_[p|m]", x = ntdf$position), yes = "start", no = "cap")
+ntdf$sig <- ifelse(test = ntdf$chisq_padj < 0.05, yes = "p < 0.05", no = "ns")
+ntdf$sig <- factor(ntdf$sig, levels = c("p < 0.05", "ns"))
+ntdf$hw <- ifelse(test = ntdf$sig != "ns", yes = 0.9, no = 0.6)
+ntdf$sig_UpvsDown <- ifelse(test = ntdf$chisq_padj_UPvsDown < 0.05, yes = "p < 0.05", no = "ns")
+ntdf$sig_UpvsDown <- factor(ntdf$sig_UpvsDown, levels = c("p < 0.05", "ns"))
+```
+
+Plot
+```{r}
+plot_compare_chisq <- function(ntdf, pos_to_plot, lims = c(-1.2, 1.2), xlabel = "") {
+  ntdf2 <- ntdf[ntdf$position %in% pos_to_plot, ]
+  levs <- unique(ntdf[ntdf$position %in% pos_to_plot, c("position", "pos")])
+  levs <- levs[match(pos_to_plot, levs$position), ]
+  levs <- levs$pos
+  ntdf2$pos <- factor(ntdf2$pos, levels = levs)
+  p <- ggplot(ntdf2, 
+              aes(x = Var2, fill = log2_fraction_ratio, y = TE_change_PPvsP)) + 
+    geom_tile(aes(width = hw, height = hw, size = sig)) +
+    geom_point(aes(alpha = sig_UpvsDown), shape = 8, size = 1) + 
+    scale_fill_gradient2(name = expression(paste(log[2], " relative proportion to Reference")), 
+                         low = "blue", mid = "white", high = "red", midpoint = 0, limits = lims) +
+    scale_size_manual(name = "Group vs. Reference:", values = c(`p < 0.05` = 0, ns = 3)) +
+    scale_alpha_manual(name = "Up vs. Down:", values = c(`p < 0.05` = 1, ns = 0)) +
+    scale_y_discrete(limits = rev) +
+    facet_grid(.~pos, scales = "free_x", space = "free_x") + xlab(xlabel) + ylab("") +
+    theme_bw(base_size = 10) + 
+    theme(panel.grid = element_blank(), 
+          legend.position = "top", legend.box = "horizontal", legend.title.align = 0.5,
+          strip.background = element_rect(fill = "white"), panel.spacing = unit(0, "in")) +
+    guides(fill = guide_colourbar(order = 1, barwidth = unit(5, "cm"), barheight = unit(0.25, "cm"), 
+                                  title.position = "top"), 
+           size = guide_legend(order = 2, override.aes = list(color = "white"), 
+                               keywidth = unit(0.3, "cm"), keyheight = unit(0.3, "cm"),
+                               title.position = "top"),
+           alpha = guide_legend(order = 3, keywidth = unit(0.3, "cm"), keyheight = unit(0.3, "cm"), 
+                                title.position = "top"))
+  return(p)
+}
+```
+```{r}
+# nt position after start codon
+p_nts_p <- plot_compare_chisq(ntdf, pos_to_plot = nts[1:18], xlabel = "Nucleotide position relative to main ORF's AUG (+1 +2 +3)")
+# nt position before start codon
+p_nts_m <- plot_compare_chisq(ntdf, pos_to_plot = nts[36:19], xlabel = "Nucleotide position relative to main ORF's AUG (+1 +2 +3)")
+# nt position from 5' cap
+p_nts_5 <- plot_compare_chisq(ntdf, pos_to_plot = nts[37:54], xlabel = "Nucleotide position from 5' cap")
+```
+
+### Combine and export plots
+```{r}
+library(patchwork)
+library(Cairo)
+CairoFonts(
+  regular = "Arial:style=Regular",
+  bold = "Arial:style=Black",
+  italic = "Arial:style=Italic",
+  bolditalic = "Arial:style=Black Italic",
+  symbol = "Symbol"
+)
+```
+
+Figure 4 -- TE and 5'end features
+```{r}
+f4A <- p_TE_main + theme(legend.title = element_blank(), legend.justification = c(1, 0.5))
+f4D <- uorf$plot_res + guides(fill = guide_legend(title.position = "left"))
+f4G <- plogo_down5 / plot_spacer()
+f4FG <- ud5_U$plot_res | f4G
+f4_all <- f4A + p_ripseq + p5 + uorf$plot_res + ud5_A$plot_res + f4FG +
+  plot_layout(nrow = 3, widths = c(1, 2)) +
+  plot_annotation(tag_levels = "A") & theme(plot.tag = element_text(size = 12, face = "bold"), plot.tag.position = "topleft")
+cairo_pdf(filename = "Fig4_TE.pdf", family = "Arial", width = 7.5, height = 9.5) 
+f4_all
+dev.off()
+```
+
+Figure 5 -- TE and 3'end features
+```{r}
+design <- "
+AB
+CE
+DF
+G#
+"
+f5_all <- pc + pm + p_re + p_ref + p3 + ud3_A$plot_res + plogo_up3 +
+  plot_layout(design = design, heights = c(1, 1, 1, 0.5)) +
+  plot_annotation(tag_levels = "A") & theme(plot.tag = element_text(size = 12, face = "bold"), plot.tag.position = "topleft")
+cairo_pdf(filename = "Fig5_TE.pdf", family = "Arial", width = 5, height = 9.5) 
+f5_all
+dev.off()
+```
+
+Figure S4 -- TE and 5' nucleotide features
+```{r}
+S4_all <- p_nts_m / p_nts_p / p_nts_5 + 
+  plot_layout(guides = "collect") +
+  plot_annotation(tag_levels = "A") & theme(plot.tag = element_text(size = 12, face = "bold"), plot.tag.position = "topleft", legend.position = "top")
+
+cairo_pdf(filename = "FigS4.pdf", family = "Arial", width = 7.5, height = 5) 
+S4_all
+dev.off()
+```

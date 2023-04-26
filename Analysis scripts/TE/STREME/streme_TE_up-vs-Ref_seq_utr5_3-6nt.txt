@@ -1,0 +1,64 @@
+********************************************************************************
+STREME - Sensitive, Thorough, Rapid, Enriched Motif Elicitation
+********************************************************************************
+MEME version 5.5.0 (Release date: Wed Sep 7 14:18:26 2022 -0700)
+
+For further information on how to interpret these results please access https://meme-suite.org/meme.
+To get a copy of the MEME Suite software please access https://meme-suite.org.
+
+********************************************************************************
+
+
+********************************************************************************
+REFERENCE
+********************************************************************************
+If you use this program in your research, please cite:
+
+Timothy L. Bailey,
+"STREME: accurate and versatile sequence motif discovery",
+Bioinformatics, Mar. 24, 2021.
+********************************************************************************
+
+
+ALPHABET= ACGU
+
+strands: +
+
+Background letter frequencies
+A 0.368 C 0.177 G 0.17 U 0.286 
+
+MOTIF 1-UCUAAG STREME-1
+letter-probability matrix: alength= 4 w= 6 nsites= 12 E= 3.0e+000
+ 0.003752 0.001801 0.001731 0.992716
+ 0.003752 0.991605 0.001731 0.002911
+ 0.003752 0.001801 0.001731 0.992716
+ 0.785394 0.001801 0.001731 0.211074
+ 0.790338 0.048494 0.054860 0.106307
+ 0.003752 0.001801 0.991536 0.002911
+
+MOTIF 2-CCUAG STREME-2
+letter-probability matrix: alength= 4 w= 5 nsites= 9 E= 3.0e+000
+ 0.033458 0.925147 0.015438 0.025957
+ 0.033458 0.925147 0.015438 0.025957
+ 0.033458 0.016056 0.015438 0.935048
+ 0.942549 0.016056 0.015438 0.025957
+ 0.033458 0.016056 0.924529 0.025957
+
+MOTIF 3-GGGCUG STREME-3
+letter-probability matrix: alength= 4 w= 6 nsites= 5 E= 3.0e+000
+ 0.033458 0.016056 0.924529 0.025957
+ 0.033458 0.016056 0.924529 0.025957
+ 0.033458 0.016056 0.924529 0.025957
+ 0.033458 0.925147 0.015438 0.025957
+ 0.033458 0.016056 0.015438 0.935048
+ 0.033458 0.016056 0.924529 0.025957
+
+********************************************************************************
+Stopped because 3 consecutive motifs exceeded the p-value threshold (0.05).
+********************************************************************************
+COMMAND:	streme --verbosity 1 --oc . --rna --totallength 4000000 --time 14400 --minw 3 --maxw 6 --thresh 0.05 --align center --p TE_up_seq_utr5.fa --n TE_Ref_seq_utr5.fa
+********************************************************************************
+CPU:		noble-meme.grid.gs.washington.edu
+********************************************************************************
+FINALTIME:	0.75 seconds
+********************************************************************************

@@ -1,0 +1,148 @@
+---
+title: "Random forest models"
+output: html_document
+---
+
+## Random forest models predicting readthrough efficiency
+
+```{r}
+library(dplyr)
+library(data.table)
+library(caret)
+library(pROC)
+library(randomForest)
+library(rfPermute)
+library(rstatix)
+source("functions_random_forest.R")
+onlyann <- scan("../../Data/reference_set_2693_genes.txt", character()) # list of genes with UTR annotations and minimally overlapping sequence
+```
+
+### Random forest models
+
+Prepare data
+```{r}
+feature_file <- data.table(read.csv("../../Data/mRNA features/mRNA_features_termination.csv"))
+re <- data.table(read.csv("pab1_strains_readthrough_efficiency.csv"))
+re <- split(re, re$strain)
+
+# Regression
+re_reg <- lapply(re, prep, cds_rpkm_cutoff = 2, utr3_rpkm_cutoff = 0.1, group_param = "none", feature_file = feature_file, utr3_region = "ext", genes_to_analyze = onlyann)
+
+# Classification
+re_group <- lapply(re, prep, cds_rpkm_cutoff = 2, utr3_rpkm_cutoff = 0.1, group_param = c("percentile", 15), feature_file = feature_file, utr3_region = "ext")
+```
+
+Create random forest model
+```{r}
+# Choose mRNA features to include
+all_col <- names(re_reg[[1]])
+feature_to_run <- c(all_col[grepl("tunnel", all_col)], "aa_m02", "aa_m01", all_col[grepl("nt_m", all_col)], "stop_codon", all_col[grepl("nt_p", all_col)], "nis_stop", "l_utr3", all_col[grepl("utr3_fraction_[A-Z]$", all_col)], "random_factor", "random_num")
+feature_to_run
+
+# Regression
+re_reg_filter <- lapply(re_reg, function(x) x[, c("log_rte", feature_to_run), with = FALSE])
+re_reg_rf <- list()
+for (i in 1:5) {
+  re_reg_rf[[i]] <- lapply(re_reg_filter, rp_reg, ntree = 100)
+}
+
+# Classification
+re_group_filter <- lapply(re_group, function(x) x[, c("Group", feature_to_run), with = FALSE])
+for (i in 1:5) {
+  re_group_rf[[i]] <- lapply(re_group_filter, rp_class, ntree = 200)
+}
+```
+
+Performance metrics
+```{r}
+# Regression
+nrmse <- list()
+for (s in c("WT", "pbp1d", "pab1d")) {
+  for (i in 1:5) {
+    nrmse[[s]][[i]] <- re_reg_rf[[i]][[s]]$metrics
+  }
+  nrmse[[s]] <- bind_rows(nrmse[[s]], .id = "repeats")
+}
+nrmse <- bind_rows(nrmse, .id = "sample")
+write.table(nrmse, file = "../../Figures/data/FigS3A_pab1_rf_reg_5foldCV_5repeats_nrmse.txt", sep = "\t", col.names = TRUE, row.names = FALSE, quote = FALSE)
+
+# Classification
+auroc <- list()
+for (s in c("WT", "pbp1d", "pab1d")) {
+  for (i in 1:5) {
+    auroc[[s]][[i]] <- re_group_rf[[i]][[s]]$metrics
+  }
+  auroc[[s]] <- bind_rows(auroc[[s]], .id = "repeats")
+}
+auroc <- bind_rows(auroc, .id = "sample")
+write.table(auroc, file = "../../Figures/data/FigS3B_pab1_rf_class_5foldCV_5repeats_auroc.txt", sep = "\t", col.names = TRUE, row.names = FALSE, quote = FALSE)
+```
+
+Feature importance
+```{r}
+# Regression
+regg <- list()
+for (s in c("WT", "pbp1d", "pab1d")) {
+  for (i in 1:5) {
+    regg[[s]][[i]] <- re_reg_rf[[i]][[s]]$imp
+  }
+}
+imp_reg <- lapply(regg, ave_importance, rf_type = "reg", sig_mode = "across", pval_cutoff = 0.05, num_cutoff = 0.6)
+imp_reg <- bind_rows(imp_reg, .id = "sample")
+write.table(imp_reg, file = "../../Figures/data/Fig3A_pab1_rf_reg_5foldCV_5repeats_feature_importance.txt", sep = "\t", col.names = TRUE, row.names = FALSE, quote = FALSE)
+
+# Classification
+classs <- list()
+for (s in c("WT", "pbp1d", "pab1d")) {
+  for (i in 1:5) {
+    classs[[s]][[i]] <- re_group_rf[[i]][[s]]$imp
+  }
+}
+imp_class <- lapply(classs, ave_importance, rf_type = "class", sig_mode = "across", pval_cutoff = 0.05, num_cutoff = 0.6)
+imp_class <- bind_rows(imp_class, .id = "sample")
+write.table(imp_class, file = "../../Figures/data/Fig3B_pab1_rf_class_5foldCV_5repeats_feature_importance.txt", sep = "\t", col.names = TRUE, row.names = FALSE, quote = FALSE)
+```
+
+### Analysis of significantly important mRNA features
+
+Stop codon and nt -6 to +9
+```{r}
+vars_list <- c("stop_codon", "nt_m01",  "nt_m02", "nt_m03", "nt_m04", "nt_m05", "nt_m06", "nt_p04", "nt_p05", "nt_p06", "nt_p07", "nt_p08", "nt_p09", "random_factor")
+dfs <- bind_rows(lapply(re_reg, compare_rt_categorical, vars = vars_list), .id = "Sample")
+dfs$Var <- gsub("T", "U", dfs$Var)
+write.table(dfs, file = "../../Figures/data/FigS3C_pab1_re_reg_ntm6-stop-ntp9_padj_BH.txt", sep = "\t", col.names = TRUE, row.names = FALSE, quote = FALSE)
+```
+
+P-site codon
+```{r}
+dfpc <- bind_rows(lapply(re_reg, compare_rt_categorical, vars = c("codon_m01")), .id = "Sample")
+length(unique(dfpc$Var)) # No data for GGG
+ggg <- data.table(Sample = unique(dfpc$Sample), Var = "GGG", p = NA, p.adj = NA, median = NA, samp_median = unique(dfpc$samp_median), median_diff = NA, p_hw = 0.6, p_sig = "ns", feature = "codon_m01") # Create row for GGG
+dfpc <- rbind(dfpc, ggg)
+dfpc$aa <- apply(t(apply((dfpc[, "Var"]), 1, FUN = seqinr::s2c)), 1, FUN = seqinr::translate)
+dfpc$Var <- gsub("T", "U", dfpc$Var)
+write.table(dfpc, file = "../../Figures/data/FigS3D_pab1_re_reg_codon_m01_padj_BH.txt", sep = "\t", col.names = TRUE, row.names = FALSE, quote = FALSE)
+```
+
+3'-UTR length
+```{r}
+df3 <- bind_rows(lapply(re_reg, function(x) x[, c("log_rte", "l_utr3", "stop_codon"), with = FALSE]), .id = "strain")
+# Readthrough vs 3'-UTR length
+df_cor_all <- df3 %>% group_by(strain) %>% cor_test(l_utr3, log_rte, method = "spearman")
+# Readthrough vs 3'-UTR length, grouped by stop codon
+df_cor <- df3 %>% group_by(strain, stop_codon) %>% cor_test(l_utr3, log_rte, method = "spearman")
+
+df_cor_all$stop_codon <- "all"
+df_cor <- rbind(df_cor, df_cor_all)
+df_cor$stop_codon <- gsub("T", "U", df_cor$stop_codon)
+
+nn <- data.frame(table(strain = df3$strain, stop_codon = df3$stop_codon))
+nn2 <- data.frame(table(strain = df3$strain))
+nn2$stop_codon <- "all"
+nn <- rbind(nn, nn2)
+nn$stop_codon <- gsub("T", "U", nn$stop_codon)
+
+df_plot <- full_join(df_cor, nn, by = c("strain", "stop_codon"))
+write.table(df_plot, "../../Figures/data/Fig3C_pab1_re_reg_l_utr3_spearman.txt", sep = "\t", col.names = TRUE, row.names = FALSE, quote = FALSE)
+```
+

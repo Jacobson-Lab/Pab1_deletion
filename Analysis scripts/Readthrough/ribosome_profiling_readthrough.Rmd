@@ -1,0 +1,138 @@
+---
+title: "Ribosome profiling analysis"
+output: html_document
+---
+
+## Diagnostic analysis of ribosome profiling data using riboWaltz and readthrough efficiency calculation
+
+```{r}
+library(dplyr)
+library(data.table)
+library(riboWaltz)
+```
+
+### riboWaltz
+```{r}
+feature_file <- read.csv("../../Data/mRNA features/mRNA_features_termination.csv")
+annotation_file <- data.table(feature_file[, c("transcript", "l_tr", "l_utr5", "l_cds", "l_utr3")])
+onlyann <- scan("../../Data/reference_set_2693_genes.txt", character()) # list of genes with UTR annotations and minimally overlapping sequence
+```
+
+Read bam files
+```{r}
+dir <- "./bam_files/"
+pab1_reads_list <- bamtolist(bamfolder = dir, annotation = annotation_file)
+names(pab1_reads_list) <- c("WT_1", "WT_2", "WT_3", "pbp1d_1", "pbp1d_2", "pbp1d_3", "pab1d_1", "pab1d_2", "pab1d_3")
+```
+
+Assigning read's P-site location
+```{r}
+pab1_sublist <- length_filter(pab1_reads_list, length_filter_mode = "custom", length_range = c(20:23, 27:32))
+psite_offset <- psite(pab1_sublist, flanking = 6, extremity = "auto", plot = FALSE, cl = 100)
+pab1_reads_psite_list <- psite_info(pab1_sublist, psite_offset)
+```
+```{r}
+# Check if the default p-site is accurate for each read length. (Sometimes there are two competing offsets over the start codon, and the one chosen does not reflect what's in the CDS, making CDS reads seem out-of-frame.)
+meta_check <- metaprofile_psite(pab1_reads_psite_list, annotation = annotation_file, sample = names(pab1_reads_psite_list), multisamples = "separated", plot_style = "split", length_range = 28)
+```
+```{r}
+# Adjust P-site offset accordingly
+psite_offset_adj <- psite_offset
+psite_offset_adj$corrected_offset_from_5 <- psite_offset_adj$offset_from_5
+psite_offset_adj$corrected_offset_from_3 <- psite_offset_adj$offset_from_3
+psite_offset_adj[length == 21, ]$corrected_offset_from_5 <- 13
+psite_offset_adj[length == 21, ]$corrected_offset_from_3 <- 7
+psite_offset_adj[length == 23, ]$corrected_offset_from_5 <- 14 # it's more 13 over start codon, but 14 everywhere else
+psite_offset_adj[length == 23, ]$corrected_offset_from_3 <- 8 # it's more 9 over start codon, but 8 everywhere else
+write.table(x = psite_offset_adj, file = "./bam_files/pab1_umi_psite_offset_adj.txt", col.names = TRUE, row.names = FALSE, sep = "\t")
+```
+```{r}
+# Calculate P-site location based on the offset
+psite_offset_adj <- data.table(read.table("./bam_files/pab1_umi_psite_offset_adj.txt", header = TRUE))
+pab1_reads_psite_list <- psite_info(pab1_sublist, psite_offset_adj)
+# Calculate read's reading frame
+for (i in 1:length(pab1_reads_psite_list)) {
+ pab1_reads_psite_list[[i]][["frame"]] <- pab1_reads_psite_list[[i]][["psite_from_start"]] %% 3
+}
+```
+
+Metagene analysis - periodicity
+```{r}
+meta_WT <- metaprofile_psite(pab1_reads_psite_list, annotation = annotation_file, sample = c("WT_1", "WT_2", "WT_3"), 
+                             multisamples = "sum", plot_style = "split", length_range = "all", utr3l = 80, cdsl = 40, utr5l = 25, 
+                             transcripts = onlyann)
+meta_pbp1d <- metaprofile_psite(pab1_reads_psite_list, annotation = annotation_file, sample = c("pbp1d_1", "pbp1d_2", "pbp1d_3"), 
+                                multisamples = "sum", plot_style = "split", length_range = "all", utr3l = 80, cdsl = 40, utr5l = 25, 
+                                transcripts = onlyann)
+meta_pab1d <- metaprofile_psite(pab1_reads_psite_list, annotation = annotation_file, sample = c("pab1d_1", "pab1d_2", "pab1d_3"), 
+                                multisamples = "sum", plot_style = "split", length_range = "all", utr3l = 80, cdsl = 40, utr5l = 25, 
+                                transcripts = onlyann)
+meta_all <- list()
+meta_all$WT <- meta_WT$dt
+meta_all$pbp1d <- meta_pbp1d$dt
+meta_all$pab1d <- meta_pab1d$dt
+meta_all <- lapply(meta_all, function(x) {
+  colnames(x)[3:6] <- c("count_rep1", "count_rep2", "count_rep3", "count_pool")
+  x$fraction <- x$count_pool / sum(x$count_pool)
+  return(x)
+  }
+)
+meta_all <- bind_rows(meta_all, .id = "strain")
+write.table(meta_all, file = "../../Figures/data/Fig1A_metaprofile.txt", quote = FALSE, sep = "\t", row.names = FALSE, col.names = TRUE)
+```
+
+P-site region
+```{r}
+annotation <- data.table(feature_file[, c("transcript", "stop_codon", "l_tr", "l_utr5", "l_cds", "l_utr3", "nis_pos", "nis_stop")])
+psite_region2 <- function(dat, annotation, startstop = TRUE, around_start = 3, around_stop = 3, transcripts = NULL, frame = FALSE) {
+  if (length(transcripts) > 0) {
+      message("subset transcripts")
+      dat <- dat[which(dat$transcript %in% transcripts), ]
+    }
+  dat <- left_join(dat, annotation[, c("transcript", "nis_pos")], by = "transcript")
+  dat$psite_region2 <- dat$psite_region
+  dat[psite_from_stop < nis_pos & psite_from_stop > 0, ]$psite_region2 <- "extension"
+  dat[psite_from_stop >= nis_pos, ]$psite_region2 <- "distal_3utr"
+  if (startstop == TRUE) {
+    dat[psite_from_start >= -around_start & psite_from_start < 3+around_start, ]$psite_region2 <- "start"
+    dat[psite_from_stop > -around_stop & psite_from_stop <= 3+around_stop, ]$psite_region2 <- "stop"
+  }
+  if (frame == TRUE) {
+    df <- dat[, list(count = .N), by = list(region = psite_region2, frame = frame)]
+  } else {
+    df <- dat[, list(count = .N), by = list(region = psite_region2)]
+  }
+  df$fraction <- df$count / sum(df$count)
+  return(df)
+}
+fr <- lapply(pab1_reads_psite_list, psite_region2, annotation = annotation, startstop = TRUE, around_start = 3, around_stop = 3, transcripts = onlyann, frame = TRUE)
+fr <- bind_rows(fr, .id = "sample")
+write.csv(fr, file = "../../Figures/data/Fig1BC_psite_region_frame.csv", row.names = FALSE)
+```
+
+### Readthrough efficiency calculation
+```{r}
+source("./functions_readthrough_caluclation.R")
+annotation <- data.table(feature_file[, c("transcript", "stop_codon", "l_tr", "l_utr5", "l_cds", "l_utr3", "nis_pos", "nis_stop")])
+```
+
+Read count
+```{r}
+rcdf <- lapply(pab1_reads_psite_list, read_count, annotation = annotation, cds_m5 = 15, cds_m3 = 0, frame_ = 0, utr3_p = 15)
+```
+
+Combine replicate read counts
+```{r}
+comp <- list()
+comp$WT <- composite(rcdf[c("WT_1", "WT_2", "WT_3")])
+comp$pbp1d <- composite(rcdf[c("pbp1d_1", "pbp1d_2", "pbp1d_3")])
+comp$pab1d <- composite(rcdf[c("pab1d_1", "pab1d_2", "pab1d_3")])
+```
+
+Readthrough efficiency
+```{r}
+re <- lapply(comp, rt_efficiency, cds_m5 = 15, cds_m3 = 0)
+redf <- bind_rows(re, .id = "strain")
+write.csv(redf, file = "pab1_strains_readthrough_efficiency.csv", row.names = FALSE, quote = FALSE)
+```
+

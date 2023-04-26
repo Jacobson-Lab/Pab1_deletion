@@ -1,0 +1,13 @@
+strain	stop_codon	var1	var2	cor	statistic	p	method	Freq
+pab1d	UAA	l_utr3	log_rte	-0.075	53874568.2367581	0.0531	Spearman	670
+pab1d	UAG	l_utr3	log_rte	-0.17	7370093.60734014	0.0023	Spearman	336
+pab1d	UGA	l_utr3	log_rte	-0.14	13020877.8040791	0.00404	Spearman	409
+pbp1d	UAA	l_utr3	log_rte	-0.14	28050674.1493429	0.0016	Spearman	529
+pbp1d	UAG	l_utr3	log_rte	-0.18	3791318.906783	0.00282	Spearman	268
+pbp1d	UGA	l_utr3	log_rte	-0.15	4975934.90192445	0.00917	Spearman	296
+WT	UAA	l_utr3	log_rte	-0.19	12673956.0872083	0.000153	Spearman	400
+WT	UAG	l_utr3	log_rte	-0.29	1212944.73558448	8.39e-05	Spearman	178
+WT	UGA	l_utr3	log_rte	-0.14	1789091.92124134	0.0383	Spearman	211
+pab1d	all	l_utr3	log_rte	-0.13	532657550.310178	1.35e-06	Spearman	1415
+pbp1d	all	l_utr3	log_rte	-0.16	252143610.778983	1.35e-07	Spearman	1093
+WT	all	l_utr3	log_rte	-0.2	98282271.418716	1.32e-08	Spearman	789
