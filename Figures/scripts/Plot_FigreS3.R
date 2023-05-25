@@ -19,22 +19,8 @@ p_nrmse <- ggplot(nrmse_testing, aes(x = sample, y = nrmse_range)) +
   theme(panel.grid = element_blank(), strip.background = element_blank(), axis.text.x = element_text(face = "italic"),
         legend.position = "none")
 
-auroc <- read.table("../data/FigS3B_pab1_rf_class_5foldCV_5repeats_auroc.txt", header = TRUE, sep = "\t")
-auroc$sample <- recode_factor(auroc$sample, WT = "WT", pbp1d = "pbp1Δ", pab1d = "pab1Δ\npbp1Δ")
-auroc_testing <- auroc[which(auroc$dataset == "testing"), ]
-p_auroc <- ggplot(auroc_testing, aes(x = sample, y = auc)) + 
-  stat_summary(fun = mean, geom = "bar", aes(fill = sample)) +
-  stat_summary(fun.data = mean_se, geom = "errorbar", width = 0.2, position = position_dodge(0.9), size = 0.2) +
-  geom_hline(yintercept = 0.5, linetype = "dashed") +
-  scale_fill_manual(values = set3[c(4, 7, 5)]) +
-  ylab("AUROC") + xlab("") +
-  coord_cartesian(ylim = c(0, 1)) +
-  theme_bw(base_size = 10) + 
-  theme(panel.grid = element_blank(), strip.background = element_blank(), axis.text.x = element_text(face = "italic"),
-        legend.position = "none")
-
 # Stop codon and surrounding nucleotides -----------
-dfs <- read.table("../data/FigS3C_pab1_umi_f0_0_reg_ntm6-stop-ntp9_padj_BH.txt", header = TRUE, sep = "\t")
+dfs <- read.table("../data/FigS3B_pab1_re_reg_ntm6-stop-ntp9_padj_BH.txt", header = TRUE, sep = "\t")
 dfs$Sample <- recode_factor(dfs$Sample, WT = "WT", pbp1d = "pbp1Δ", pab1d = "pab1Δpbp1Δ")
 dfs$feature <- recode_factor(dfs$feature, random_factor = "Random", nt_m06 = "-6",  nt_m05 = "-5", nt_m04 = "-4", 
                              nt_m03 = "-3", nt_m02 = "-2", nt_m01 = "-1", stop_codon = "Stop", 
@@ -58,7 +44,7 @@ p_stop <- ggplot(dfs) +
          size = guide_legend(order = 2, override.aes = list(color = "white"), keywidth = unit(0.3, "cm"), keyheight = unit(0.3, "cm")))
 
 # P-site codon -------------------------------------
-dfpc <- read.table("../data/FigS3D_pab1_umi_f0_0_reg_codon_m01_padj_BH.txt", header = TRUE, sep = "\t")
+dfpc <- read.table("../data/FigS3C_pab1_re_reg_codon_m01_padj_BH.txt", header = TRUE, sep = "\t")
 dfpc$Sample <- recode_factor(dfpc$Sample, WT = "WT", pbp1d = "pbp1Δ", pab1d = "pab1Δpbp1Δ")
 dfpc$aa <- factor(dfpc$aa, levels = c("F", "S", "Y", "*", "C", "W", "L", "P", "H", "Q", "R", "I", "M", "T", "N", "K", "V", "A", "D", "E", "G"))
 p_psite <- ggplot(dfpc) +
@@ -82,12 +68,12 @@ p_psite <- ggplot(dfpc) +
 # Combine plots
 library(patchwork)
 design = "
-AB#
+A##
+BBB
 CCC
-DDD
 "
 pA <- p_nrmse + theme(axis.title.y = element_text(margin = margin(r = -45, unit = "pt")))
-p <- pA + p_auroc + p_stop + p_psite +
+p <- pA + p_stop + p_psite +
   plot_layout(design = design, heights = c(4.5, 1, 1)) + plot_annotation(tag_levels = "A") & 
   theme(plot.tag = element_text(size = 12, face = "bold"), plot.tag.position = "topleft")
 

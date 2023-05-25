@@ -8,7 +8,6 @@ library(ggh4x)
 
 # Random forest feature importance -----------------
 df_reg <- read.table("../data/Fig3A_pab1_rf_reg_5foldCV_5repeats_feature_importance.txt", sep = "\t", header = TRUE)
-df_class <- read.table("../data/Fig3B_pab1_rf_class_5foldCV_5repeats_feature_importance.txt", sep = "\t", header = TRUE)
 
   # Function to rename features and prepare data for plotting
 prep_imp <- function(all.imp_df) {
@@ -85,11 +84,9 @@ plot_imp <- function(dat, legend_name = NULL, legend_lim = c(-8, 8), legend_brea
   # Plot
 df_reg <- prep_imp(df_reg)
 p_reg <- plot_imp(dat = df_reg, legend_name = "%IncMSE   ", legend_lim = c(-8, 8), legend_break_length = 9)
-df_class <- prep_imp(df_class)
-p_class <- plot_imp(dat = df_class, legend_name = "MDA   ", legend_lim = c(-8, 8), legend_break_length = 9)
 
 # Readthrough vs 3'-UTR length ---------------------
-df_plot <- read.table("../data/Fig3C_pab1_re_reg_l_utr3_spearman.txt", header = TRUE, sep = "\t")
+df_plot <- read.table("../data/Fig3B_pab1_re_reg_l_utr3_spearman.txt", header = TRUE, sep = "\t")
 df_plot$strain <- recode_factor(df_plot$strain, WT = "WT", pbp1d = "pbp1\u0394", pab1d = "pab1\u0394\npbp1\u0394")
 
 set3 <- RColorBrewer::brewer.pal(n = 12, name = "Set3") # Color palette for plotting
@@ -107,8 +104,8 @@ p_lutr3 <- ggplot(df_plot, aes(fill = strain, y = cor, x = strain)) +
 
 # Combine plots
 library(patchwork)
-p <- p_reg / p_class / (p_lutr3 + theme(axis.title.y = element_text(margin = margin(r = -30, unit = "pt")))) + 
-  plot_layout(heights = c(1.5, 1.5, 6), guides = 'keep') + 
+p <- p_reg / (p_lutr3 + theme(axis.title.y = element_text(margin = margin(r = -30, unit = "pt")))) + 
+  plot_layout(heights = c(1.5, 6), guides = 'keep') + 
   plot_annotation(tag_levels = "A") & 
   theme(plot.tag = element_text(size = 12, face = "bold"), plot.tag.position = "topleft")
 
@@ -121,6 +118,6 @@ CairoFonts(
   bolditalic = "Arial:style=Black Italic",
   symbol = "Symbol"
 )
-cairo_pdf(filename = "Fig3_readthrough_mRNA_features.pdf", family = "Arial", width = 7.5, height = 9) 
+cairo_pdf(filename = "Fig3_readthrough_mRNA_features.pdf", family = "Arial", width = 7.5, height = 6) 
 p
 dev.off()
