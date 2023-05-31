@@ -126,9 +126,9 @@ for (i in sheets) {
 }
 
 library(ggVennDiagram)
-ggVennDiagram(x = list(eIF4Gd_Up = park1$`p<0.1,TEg 1.4 TEwt`$GENE_NAME, 
+ggVennDiagram(x = list(eIF4Gd_Up = park1$`p<0.1,TEg 1.4 TEwt`$GENE_NAME[!is.na(park1$`p<0.1,TEg 1.4 TEwt`$GENE_NAME)], 
                        Pab1d_Up = ud[which(ud$TE_change_PPvsP == "Up"), ]$transcript))
-ggVennDiagram(x = list(eIF4Gd_Down = park1$`p<0.1,TEg 0.71 TEwt`$GENE_NAME, 
+ggVennDiagram(x = list(eIF4Gd_Down = park1$`p<0.1,TEg 0.71 TEwt`$GENE_NAME[!is.na(park1$`p<0.1,TEg 0.71 TEwt`$GENE_NAME)], 
                        Pab1d_Down = ud[which(ud$TE_change_PPvsP == "Down"), ]$transcript))
 ```
 
