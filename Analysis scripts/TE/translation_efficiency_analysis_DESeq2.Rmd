@@ -12,6 +12,7 @@ library(DESeq2)
 library(rstatix)
 library(rcompanion)
 library(ggplot2)
+library(ggpubr)
 source("../functions_misc.R")
 ```
 
@@ -91,7 +92,7 @@ polyA <- read.csv("../../Data/mRNA features/polyA_tracts.csv")
 oligoU <- read.csv("../../Data/mRNA features/oligoU.csv")
 
 # Combine feature files
-features <- left_join(feature_initiation, select(feature_file, -c("l_tr", "l_utr5", "l_cds", "l_utr3", "random_factor", "random_num")), by = "transcript", suffix = c("", "_stop"))
+features <- left_join(feature_initiation, select(feature_termination, -c("l_tr", "l_utr5", "l_cds", "l_utr3", "random_factor", "random_num")), by = "transcript", suffix = c("", "_stop"))
 features <- left_join(features, RE, by = "transcript")
 features <- left_join(features, polyA, by = "transcript")
 features <- left_join(features, oligoU, by = "transcript", suffix = c("", "_U"))
@@ -114,22 +115,110 @@ udf <- ud[which(ud$transcript %in% genes_with_UTRs), ]
 udf <- udf[which(udf$l_utr5 > 18 & udf$l_utr3 > 16), ] # This is limit in 5'-UTR and 3'-UTR lengths is for exploring nucleotide identity surrounding start / stop such that these nucleotides do not include the start / stop codons themselves and CDS positions
 ```
 
+#### mRNA abundance
+```{r}
+# log2 fold change in mRNA abundance
+res_rna <- read.csv("../DE RNA-seq/pab1_RNAseq_DESeq2.csv")
+ud2 <- left_join(ud, res_rna[which(res_rna$pair == "pab1Δpbp1Δ / pbp1Δ"), ], by = c("transcript" = "row"), suffix = c("", "_rna"))
+ud3 <- ud2[which(!(is.na(ud2$padj))), c("transcript", "TE_change_PPvsP", "log2FoldChange_rna")] # Filter out mRNAs with read count too low
+
+# RPKM mRNA abundance
+rna <- read.csv("../../Data/RNAseq-Riboseq/pab1_strains_RSEM_FPKM_isoforms.results.csv")
+rownames(rna) <- rna$transcript_id
+rna <- rna[, colnames(rna)[grepl(pattern = "^RNA.*", x = colnames(rna))]]
+pbp1d_rpkm <- data.frame(transcript = rownames(rna), pbp1d_ave_RPKM = rowMeans(log10(rna[, 4:6])))
+pbp1d_rpkm[which(pbp1d_rpkm$pbp1d_ave_RPKM == -Inf), ]$pbp1d_ave_RPKM <- -1.6 # Set -Inf to the closest lowest negative number
+ud3 <- left_join(ud3, pbp1d_rpkm, by = "transcript")
+```
+
+Plot TE group vs mRNA abundance in WT condition (pbp1d cells)
+```{r}
+nn2 <- data.frame(table(TE_change_PPvsP = ud3$TE_change_PPvsP))
+comps <- get_comparisons(ud3, "TE_change_PPvsP")
+stat.test2 <- ud3 %>%
+  wilcox_test(pbp1d_ave_RPKM~TE_change_PPvsP, p.adjust.method = "BH", paired = FALSE, comparisons = comps) %>%
+  add_significance() %>% add_xy_position(step.increase = 0.3)
+stat.test2$y.position <- c(3.75, 3.875, 4)
+p_TE_pbp1d_mRNA <- ggplot(ud3, aes(x = TE_change_PPvsP, y = pbp1d_ave_RPKM)) + 
+  geom_boxplot(aes(fill = TE_change_PPvsP), outlier.shape = NA) + 
+  geom_text(data = nn2, aes(x = TE_change_PPvsP, y = -0.5, label = paste0("n = ", Freq)), size = 7/.pt) +
+  stat_pvalue_manual(data = stat.test2, label = "p.adj.signif", tip.length = 0.001, size = 7/.pt, vjust = 0.5, hide.ns = TRUE) +
+  scale_fill_manual(values = c(Up = "orange", Down = "purple", Reference = "white")) +
+  scale_x_discrete(labels = c(Reference = "Ref.", Up = "Up", Down = "Down")) + 
+  ylab(expression(atop("mRNA abundance", italic("pbp1Δ")))) +
+  xlab(expression(atop("log"[2]*" fold change in TE", italic("pab1Δpbp1Δ / pbp1Δ")))) +
+  coord_cartesian(ylim = c(-0.5, 4)) +
+  theme_bw(base_size = 10) + 
+  theme(strip.background = element_rect(fill = "white"), panel.grid = element_blank(), axis.title.x = element_text(face = "italic"),
+        legend.position = "none")
+```
+
+Plot TE group vs mRNA abundance changes
+```{r}
+nn3 <- data.frame(table(TE_change_PPvsP = ud3$TE_change_PPvsP))
+comps <- get_comparisons(ud3, "TE_change_PPvsP")
+stat.test3 <- ud3 %>%
+  wilcox_test(log2FoldChange_rna~TE_change_PPvsP, p.adjust.method = "BH", paired = FALSE, comparisons = comps) %>%
+  add_significance() %>% add_xy_position(step.increase = 0.3)
+stat.test3$y.position <- c(2.5, 2.75, 3)
+p_TE_mRNA_changes <- ggplot(ud3, aes(x = TE_change_PPvsP, y = log2FoldChange_rna)) + 
+  geom_boxplot(aes(fill = TE_change_PPvsP), outlier.shape = NA) + 
+  geom_text(data = nn3, aes(x = TE_change_PPvsP, y = -2.5, label = paste0("n = ", Freq)), size = 7/.pt) +
+  stat_pvalue_manual(data = stat.test3, label = "p.adj.signif", tip.length = 0.001, size = 7/.pt, vjust = 0.5, hide.ns = TRUE) +
+  scale_fill_manual(values = c(Up = "orange", Down = "purple", Reference = "white")) +
+  scale_x_discrete(labels = c(Reference = "Ref.", Up = "Up", Down = "Down")) + 
+  ylab(expression(atop("log"[2]*" fold change in mRNA", italic("pab1Δpbp1Δ / pbp1Δ")))) +
+  xlab(expression(atop("log"[2]*" fold change in TE", italic("pab1Δpbp1Δ / pbp1Δ")))) +
+  coord_cartesian(ylim = c(-2.5, 3)) +
+  theme_bw(base_size = 10) + 
+  theme(strip.background = element_rect(fill = "white"), panel.grid = element_blank(), axis.title.x = element_text(face = "italic"),
+        legend.position = "none")
+```
+
 #### eIF4G
 
-Compare to eIF4G depletion data from Park et al. 2011
+Compare to eIF4G depletion ribo-seq data from Zinshteyn et al. 2017
 ```{r}
-park1 <- list()
-sheets <- c("p<0.1,TEg 0.71 TEwt", "p<0.1,TEg 1.4 TEwt")
-for (i in sheets) {
-  park1[[i]] <- as.data.frame(readxl::read_xls("../../Data/Park_2011_12864_2010_3204_MOESM1_ESM.XLS", sheet = i))
-  park1[[i]]$GENE_NAME <- sub("$", "_mRNA", park1[[i]]$GENE_NAME)
-}
+zins <- list()
+# YPA media
+zins$YPA <- read.table("../../Data/Zinshteyn_2017_GSE87614_YPA_TEs.tsv", header = TRUE, sep = "\t")
+zins$YPA$gene <- sub("$", "_mRNA", zins$YPA$gene)
+zins$YPA$YPA_TE_foldchange_2hr <- zins$YPA$YPA_4Gts_2h.TE / zins$YPA$YPA_WT_2h.TE
+zins$YPA$YPA_TE_foldchange_0hr <- zins$YPA$YPA_4Gts_0h.TE / zins$YPA$YPA_WT_0h.TE
+zins$YPA$YPA_TE_foldchange_preshift <- zins$YPA$YPA_4Gts_pre_shift.TE / zins$YPA$YPA_WT_pre_shift.TE
+```
+```{r}
+comb <- left_join(ud[, c("transcript", "log2FoldChange", "TE_change_PPvsP")], zins$YPA[, c("gene", "YPA_TE_foldchange_2hr", "YPA_TE_foldchange_0hr", "YPA_TE_foldchange_preshift")], by = c("transcript" = "gene"))
+comb_m <- reshape2::melt(comb)
+comb_m_filter <- comb_m[comb_m$variable != "log2FoldChange", ]
+comb_m_filter$facet <- sub("_TE_foldchange_", "", comb_m_filter$variable)
+comb_m_filter$facet <- sub("YPA", "", comb_m_filter$facet)
+comb_m_filter <- comb_m_filter[!is.na(comb_m_filter$value), ]
+comb_m_filter$log2FC <- log2(comb_m_filter$value)
+comb_m_filter <- comb_m_filter[is.finite(comb_m_filter$log2FC), ]
+comb_m_filter$facet <- factor(comb_m_filter$facet, levels = c("preshift", "0hr", "2hr"))
 
-library(ggVennDiagram)
-ggVennDiagram(x = list(eIF4Gd_Up = park1$`p<0.1,TEg 1.4 TEwt`$GENE_NAME[!is.na(park1$`p<0.1,TEg 1.4 TEwt`$GENE_NAME)], 
-                       Pab1d_Up = ud[which(ud$TE_change_PPvsP == "Up"), ]$transcript))
-ggVennDiagram(x = list(eIF4Gd_Down = park1$`p<0.1,TEg 0.71 TEwt`$GENE_NAME[!is.na(park1$`p<0.1,TEg 0.71 TEwt`$GENE_NAME)], 
-                       Pab1d_Down = ud[which(ud$TE_change_PPvsP == "Down"), ]$transcript))
+comp <- get_comparisons(comb_m_filter, variable = "TE_change_PPvsP")
+stat.test <- comb_m_filter %>% group_by(facet) %>% 
+  wilcox_test(log2FC ~ TE_change_PPvsP, comparisons = comp, p.adjust.method = "BH")
+stat.test <- stat.test %>% add_significance() %>% add_xy_position()
+stat.test$y.position <- rep(c(1.25, 1.375, 1.5), times = 3)
+
+nnz <- data.frame(table(TE_change_PPvsP = comb_m_filter$TE_change_PPvsP, facet = comb_m_filter$facet))
+p_riboseq <- ggplot(comb_m_filter, aes(x = TE_change_PPvsP, y = log2FC)) + 
+  geom_boxplot(outlier.alpha = 0, aes(fill = TE_change_PPvsP), show.legend = FALSE) + 
+  geom_text(data = nnz, aes(x = TE_change_PPvsP, y = -1.75, label = paste0("n = ", Freq)), size = 7/.pt) +
+  stat_pvalue_manual(data = stat.test, label = "p.adj.signif", tip.length = 0.002, size = 7/.pt, vjust = 0.5, hide.ns = TRUE) +
+  facet_wrap(~facet, nrow = 1) +
+  scale_fill_manual(values = c(Up = "orange", Down = "purple", Reference = "white")) +
+  scale_x_discrete(labels = c(Reference = "Ref.", Up = "Up", Down = "Down")) + 
+  #xlab(bquote(log[2] ~ "fold change in TE")) + 
+  xlab(expression(atop(log[2] ~ "fold change in TE", italic("pab1Δpbp1Δ / pbp1Δ")))) +
+  ylab(expression(atop(log[2] ~ "fold change in TE", italic("eIF4Gd / WT")))) +
+  coord_cartesian(ylim = c(-1.75, 1.5)) +
+  theme_bw(base_size = 10) + 
+  theme(strip.background = element_rect(fill = "white"), panel.grid = element_blank(), axis.title.x = element_text(face = "italic"),
+          legend.position = "none")
 ```
 
 Compare to RIP-seq data from Costello et al. 2015
@@ -451,21 +540,38 @@ CairoFonts(
 )
 ```
 
-Figure 4 -- TE and 5'end features
+Figure 4 -- TE changes
 ```{r}
+design <- "
+ADD
+BEE
+C##
+"
 f4A <- p_TE_main + theme(legend.title = element_blank(), legend.justification = c(1, 0.5))
-f4D <- uorf$plot_res + guides(fill = guide_legend(title.position = "left"))
-f4G <- plogo_down5 / plot_spacer()
-f4FG <- ud5_U$plot_res | f4G
-f4_all <- f4A + p_ripseq + p5 + uorf$plot_res + ud5_A$plot_res + f4FG +
-  plot_layout(nrow = 3, widths = c(1, 2)) +
+f4_all <- (f4A + p_TE_pbp1d_mRNA + p_TE_mRNA_changes + p_riboseq + p_ripseq) +
+  plot_layout(design = design) +
   plot_annotation(tag_levels = "A") & theme(plot.tag = element_text(size = 12, face = "bold"), plot.tag.position = "topleft")
-cairo_pdf(filename = "Fig4_TE.pdf", family = "Arial", width = 7.5, height = 9.5) 
+cairo_pdf(filename = "Fig4_TE_changes.pdf", family = "Arial", width = 7.5, height = 8.5) 
 f4_all
 dev.off()
 ```
 
-Figure 5 -- TE and 3'end features
+Figure 5 -- TE and 5'end features
+```{r}
+design <- "
+AABBBB
+CCDDEE
+"
+f5E <- plogo_down5 / plot_spacer()
+f5_all <- p5 + uorf$plot_res + ud5_A$plot_res + ud5_U$plot_res + f5E +
+  plot_layout(design = design) +
+  plot_annotation(tag_levels = "A") & theme(plot.tag = element_text(size = 12, face = "bold"), plot.tag.position = "topleft")
+cairo_pdf(filename = "Fig5_TE_5feats.pdf", family = "Arial", width = 7.5, height = 6.5) 
+f5_all
+dev.off()
+```
+
+Figure 6 -- TE and 3'end features
 ```{r}
 design <- "
 AB
@@ -473,11 +579,11 @@ CE
 DF
 G#
 "
-f5_all <- pc + pm + p_re + p_ref + p3 + ud3_A$plot_res + plogo_up3 +
+f6_all <- pc + pm + p_re + p_ref + p3 + ud3_A$plot_res + plogo_up3 +
   plot_layout(design = design, heights = c(1, 1, 1, 0.5)) +
   plot_annotation(tag_levels = "A") & theme(plot.tag = element_text(size = 12, face = "bold"), plot.tag.position = "topleft")
-cairo_pdf(filename = "Fig5_TE.pdf", family = "Arial", width = 5, height = 9.5) 
-f5_all
+cairo_pdf(filename = "Fig6_TE_3feats.pdf", family = "Arial", width = 5, height = 9.5) 
+f6_all
 dev.off()
 ```
 
