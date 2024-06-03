@@ -13,6 +13,7 @@ library(rstatix)
 library(rcompanion)
 library(ggplot2)
 library(ggpubr)
+library(ggh4x)
 source("../functions_misc.R")
 ```
 
@@ -71,6 +72,34 @@ nn$ypos <- rep(c(10, 7.5, 5), each = 3)
 p_TE_main <- plot_volcano(res = res_TE[which(res_TE$pair == "pab1Δpbp1Δ / pbp1Δ"), ], 
                           nn = nn[which(nn$pair == "pab1Δpbp1Δ / pbp1Δ"), ], xlabel = "in TE", 
                           point_label = NULL)
+```
+
+Gene ontology analysis of TE groups in pab1Δpbp1Δ / pbp1Δ
+```{r}
+de <- res_TE[which(res_TE$pair == "pab1Δpbp1Δ / pbp1Δ"), ]
+de$mrna <- sub(".*_", "", de$row)
+de$root <- sub("_.*", "", de$row)
+de <- de[which(de$changes != "Unchanged" & de$mrna == "mRNA"), ]
+de <- split(de, de$changes)
+de <- lapply(de, function(x) x$root)
+```
+```{r}
+library(gprofiler2)
+gostres <- gost(query = de, organism = "scerevisiae")
+
+# Export results as Excel
+xx <- gostres$result
+xx$parents <- as.character(xx$parents) # parents column is list. Convert to character before exporting
+xx <- split(xx, xx$query)
+openxlsx::write.xlsx(list('Up' = xx$Up, 'Down' = xx$Down), file = "pab1_TE_gene_ontology_pab1d-vs-pbp1d.xlsx")
+
+# Plot results
+gp <- gostplot(gostres, capped = TRUE, interactive = FALSE)
+tohighlight <- gostres$result %>%
+  group_by(query, source) %>%
+  slice_min(order_by = p_value, n = 3, with_ties = FALSE)
+gpp <- publish_gostplot(gp, highlight_terms = tohighlight, 
+                        width = 8.5, height = 11, filename = "pab1_TE_gene_ontology_pab1d-vs-pbp1d.pdf")
 ```
 
 Prepare table of mRNA features
@@ -149,8 +178,7 @@ p_TE_pbp1d_mRNA <- ggplot(ud3, aes(x = TE_change_PPvsP, y = pbp1d_ave_RPKM)) +
   xlab(expression(atop("log"[2]*" fold change in TE", italic("pab1Δpbp1Δ / pbp1Δ")))) +
   coord_cartesian(ylim = c(-0.5, 4)) +
   theme_bw(base_size = 10) + 
-  theme(strip.background = element_rect(fill = "white"), panel.grid = element_blank(), axis.title.x = element_text(face = "italic"),
-        legend.position = "none")
+  theme(strip.background = element_rect(fill = "white"), panel.grid = element_blank(), axis.title.x = element_text(face = "italic"), legend.position = "none")
 ```
 
 Plot TE group vs mRNA abundance changes
@@ -171,8 +199,7 @@ p_TE_mRNA_changes <- ggplot(ud3, aes(x = TE_change_PPvsP, y = log2FoldChange_rna
   xlab(expression(atop("log"[2]*" fold change in TE", italic("pab1Δpbp1Δ / pbp1Δ")))) +
   coord_cartesian(ylim = c(-2.5, 3)) +
   theme_bw(base_size = 10) + 
-  theme(strip.background = element_rect(fill = "white"), panel.grid = element_blank(), axis.title.x = element_text(face = "italic"),
-        legend.position = "none")
+  theme(strip.background = element_rect(fill = "white"), panel.grid = element_blank(), axis.title.x = element_text(face = "italic"), legend.position = "none")
 ```
 
 #### eIF4G
@@ -199,16 +226,16 @@ comb_m_filter <- comb_m_filter[is.finite(comb_m_filter$log2FC), ]
 comb_m_filter$facet <- factor(comb_m_filter$facet, levels = c("preshift", "0hr", "2hr"))
 
 comp <- get_comparisons(comb_m_filter, variable = "TE_change_PPvsP")
-stat.test <- comb_m_filter %>% group_by(facet) %>% 
+stat.test4 <- comb_m_filter %>% group_by(facet) %>% 
   wilcox_test(log2FC ~ TE_change_PPvsP, comparisons = comp, p.adjust.method = "BH")
-stat.test <- stat.test %>% add_significance() %>% add_xy_position()
-stat.test$y.position <- rep(c(1.25, 1.375, 1.5), times = 3)
+stat.test4 <- stat.test4 %>% add_significance() %>% add_xy_position()
+stat.test4$y.position <- rep(c(1.25, 1.375, 1.5), times = 3)
 
 nnz <- data.frame(table(TE_change_PPvsP = comb_m_filter$TE_change_PPvsP, facet = comb_m_filter$facet))
 p_riboseq <- ggplot(comb_m_filter, aes(x = TE_change_PPvsP, y = log2FC)) + 
   geom_boxplot(outlier.alpha = 0, aes(fill = TE_change_PPvsP), show.legend = FALSE) + 
   geom_text(data = nnz, aes(x = TE_change_PPvsP, y = -1.75, label = paste0("n = ", Freq)), size = 7/.pt) +
-  stat_pvalue_manual(data = stat.test, label = "p.adj.signif", tip.length = 0.002, size = 7/.pt, vjust = 0.5, hide.ns = TRUE) +
+  stat_pvalue_manual(data = stat.test4, label = "p.adj.signif", tip.length = 0.002, size = 7/.pt, vjust = 0.5, hide.ns = TRUE) +
   facet_wrap(~facet, nrow = 1) +
   scale_fill_manual(values = c(Up = "orange", Down = "purple", Reference = "white")) +
   scale_x_discrete(labels = c(Reference = "Ref.", Up = "Up", Down = "Down")) + 
@@ -217,8 +244,7 @@ p_riboseq <- ggplot(comb_m_filter, aes(x = TE_change_PPvsP, y = log2FC)) +
   ylab(expression(atop(log[2] ~ "fold change in TE", italic("eIF4Gd / WT")))) +
   coord_cartesian(ylim = c(-1.75, 1.5)) +
   theme_bw(base_size = 10) + 
-  theme(strip.background = element_rect(fill = "white"), panel.grid = element_blank(), axis.title.x = element_text(face = "italic"),
-          legend.position = "none")
+  theme(strip.background = element_rect(fill = "white"), panel.grid = element_blank(), axis.title.x = element_text(face = "italic"), legend.position = "none")
 ```
 
 Compare to RIP-seq data from Costello et al. 2015
@@ -231,7 +257,9 @@ for (i in sheets) {
 }
 
 analyze_costello <- function(ud, IP_data = "eIF4G1") {
-  udf_c2 <- left_join(ud, costello2[[IP_data]], by = c("transcript" = "genes"))
+  cols = c("transcript", "l_tr", "l_cds", "l_utr5", "l_utr3", "rpkm_cds", "rpkm_ext", "rte_ext", "TE_change_PPvsP", "baseMean", "log2FoldChange")
+  udf_c2 <- left_join(ud[, cols], costello2[[IP_data]], by = c("transcript" = "genes"))
+  udf_c2 <- udf_c2[which(!(is.na(udf_c2$logFC)) & !(is.na(udf_c2$log2FoldChange))), ]
   udf_c2$dir <- "Unchanged"
   udf_c2[which(udf_c2$FDR < 0.05 & udf_c2$logFC > 0), ]$dir <- "Enriched in IP"
   udf_c2[which(udf_c2$FDR < 0.05 & udf_c2$logFC < 0), ]$dir <- "Depleted in IP"
@@ -240,18 +268,19 @@ analyze_costello <- function(ud, IP_data = "eIF4G1") {
   chi_res <- pairwiseNominalIndependence(pp, method = "BH")
   ppm <- as.data.frame(pp)
   ppm <- ppm %>% group_by(Var1) %>% mutate(percent = 100*Freq/sum(Freq))
-  res_list <- list(chi_res = chi_res, freq_res = ppm)
+  res_list <- list(df = udf_c2, chi_res = chi_res, freq_res = ppm)
   return(res_list)
 }
 
 res_ripseq <- sapply(names(costello2), function(x) analyze_costello(ud = ud, IP_data = x), simplify = FALSE, USE.NAMES = TRUE)
+names(res_ripseq)[3] <- "Pab1" # Change Pab1p to Pab1
 ```
 ```{r}
 # Plot frequencies
 aa <- bind_rows(lapply(res_ripseq, function(x) x$freq_res), .id = "IP")
 aa$Var2 <- factor(aa$Var2, levels = c("Depleted in IP", "Unchanged", "Enriched in IP"))
 colnames(aa)[2:3] <- c("TE_change", "IP_change")
-write.csv(aa, file = "../../Figures/data/Fig4B_RIPseq.csv", quote = FALSE, row.names = FALSE)
+write.csv(aa, file = "../../Figures/data/RIPseq.csv", quote = FALSE, row.names = FALSE)
 
 p_ripseq <- ggplot(aa, aes(x = TE_change, y = percent, fill = IP_change)) + 
   geom_col(position = "stack", color = "grey50") + 
@@ -264,6 +293,88 @@ p_ripseq <- ggplot(aa, aes(x = TE_change, y = percent, fill = IP_change)) +
   theme_bw(base_size = 10) + 
     theme(strip.background = element_rect(fill = "white"), panel.grid = element_blank(), 
           axis.title.x = element_blank(), legend.position = "top")
+```
+```{r}
+# Plot logFC
+bb <- bind_rows(lapply(res_ripseq, function(x) x$df), .id = "IP")
+p_ripseq_scatter <- ggplot(bb, aes(x = log2FoldChange, y = logFC)) + 
+  geom_point(alpha = 0.3, color = "grey50") + facet_grid(.~IP) + 
+  stat_cor(method = "spearman", cor.coef.name = "rho", size = 7/.pt) + geom_smooth(method = "lm") +
+  geom_hline(yintercept = 0, linetype = "dashed") + geom_vline(xintercept = 0, linetype = "dashed") +
+  xlab(expression(atop(log[2] ~ "fold change in TE", italic("pab1Δpbp1Δ / pbp1Δ")))) +
+  ylab(expression(log[2] ~ "fold change in RIP-seq")) +
+  theme_bw(base_size = 10) + 
+  theme(strip.background = element_rect(fill = "white"), panel.grid = element_blank())
+```
+```{r}
+comp <- get_comparisons(bb, variable = "TE_change_PPvsP")
+stat.test5 <- bb %>% group_by(IP) %>% 
+  wilcox_test(logFC ~ TE_change_PPvsP, comparisons = comp, p.adjust.method = "BH")
+stat.test5 <- stat.test5 %>% add_significance() %>% add_xy_position()
+stat.test5$y.position <- rep(c(2.5, 2.75, 3), times = 3)
+
+nnr <- data.frame(table(TE_change_PPvsP = bb$TE_change_PPvsP, IP = bb$IP))
+p_ripseq2 <- ggplot(bb, aes(x = TE_change_PPvsP, y = logFC)) +
+  geom_boxplot(outlier.alpha = 0, aes(fill = TE_change_PPvsP), show.legend = FALSE) +
+  geom_text(data = nnr, aes(x = TE_change_PPvsP, y = -2.75, label = paste0("n = ", Freq)), size = 7/.pt) +
+  stat_pvalue_manual(data = stat.test5, label = "p.adj.signif", tip.length = 0.002, size = 7/.pt, vjust = 0.5, hide.ns = TRUE) +
+  facet_wrap(~IP, nrow = 1) +
+  scale_fill_manual(values = c(Up = "orange", Down = "purple", Reference = "white")) +
+  scale_x_discrete(labels = c(Reference = "Ref.", Up = "Up", Down = "Down")) + 
+  xlab(expression(atop(log[2] ~ "fold change in TE", italic("pab1Δpbp1Δ / pbp1Δ")))) +
+  ylab(expression(log[2] ~ "fold change in RIP-seq")) +
+  coord_cartesian(ylim = c(-3, 3)) +
+  theme_bw(base_size = 10) + 
+  theme(strip.background = element_rect(fill = "white"), panel.grid = element_blank(), axis.title.x = element_text(face = "italic"), legend.position = "none")
+```
+```{r}
+# eIF4G sensitivity vs. transcript length
+bbf <- bb[which(bb$transcript %in% udf$transcript), ]
+bbf$TE_change_PPvsP <- recode_factor(bbf$TE_change_PPvsP, Reference = "Ref.", Up = "Up", Down = "Down")
+bbf$dir <- recode_factor(bbf$dir, `Depleted in IP` = "Depleted", Unchanged = "Unchanged", `Enriched in IP` = "Enriched")
+
+comp <- get_comparisons(bbf, variable = "dir")
+stat.test6 <- bbf %>% group_by(IP, TE_change_PPvsP) %>% 
+  wilcox_test(l_tr ~ dir, comparisons = comp, p.adjust.method = "BH")
+stat.test6 <- stat.test6 %>% add_significance() %>% add_xy_position()
+stat.test6$y.position <- rep(c(log10(6000), log10(7000), log10(8000)), times = 9)
+
+nn6 <- data.frame(table(TE_change_PPvsP = bbf$TE_change_PPvsP, IP = bbf$IP, dir = bbf$dir))
+
+p_ripseq3 <- ggplot(bbf, aes(x = dir, y = l_tr)) +
+  geom_boxplot(outlier.alpha = 0, aes(fill = dir)) +
+  geom_text(data = nn6, aes(x = dir, y = 200, label = Freq), size = 7/.pt, position = position_dodge(width = 0.2)) +
+  stat_pvalue_manual(data = stat.test6, label = "p.adj.signif", tip.length = 0.002, size = 7/.pt, vjust = 0.5, hide.ns = TRUE) +
+  facet_nested(.~IP+TE_change_PPvsP, strip = strip_split(c("bottom", "top"))) +
+  scale_fill_manual(name = "RIP-seq: ", values = c("#F8766D", "grey50", "#00B0F6")) +
+  scale_y_log10() +
+  xlab("") + ylab("mRNA length (nt)") +
+  theme_bw(base_size = 10) + 
+  theme(strip.background = element_rect(fill = "white"), strip.placement = "outside",
+        panel.grid = element_blank(), legend.position = "top",
+        axis.title.x = element_text(face = "italic"), axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+```
+```{r}
+comp <- get_comparisons(bbf, variable = "TE_change_PPvsP")
+stat.test7 <- bbf %>% group_by(IP, dir) %>% 
+  wilcox_test(l_tr ~ TE_change_PPvsP, comparisons = comp, p.adjust.method = "BH")
+stat.test7 <- stat.test7 %>% add_significance() %>% add_xy_position()
+stat.test7$y.position <- rep(c(log10(6000), log10(7000), log10(8000)), times = 9)
+
+nn7 <- data.frame(table(TE_change_PPvsP = bbf$TE_change_PPvsP, IP = bbf$IP, dir = bbf$dir))
+
+p_ripseq4 <- ggplot(bbf, aes(x = TE_change_PPvsP, y = l_tr)) +
+  geom_boxplot(outlier.alpha = 0, aes(fill = TE_change_PPvsP)) +
+  geom_text(data = nn7, aes(x = TE_change_PPvsP, y = 200, label = Freq), size = 7/.pt, position = position_dodge(width = 0.2)) +
+  stat_pvalue_manual(data = stat.test7, label = "p.adj.signif", tip.length = 0.002, size = 7/.pt, vjust = 0.5, hide.ns = TRUE) +
+  facet_nested(.~IP+dir) +
+  scale_fill_manual(name = "TE changes: ", values = c(Up = "orange", Down = "purple", Ref. = "white")) +
+  scale_y_log10() +
+  xlab("") + ylab("mRNA length (nt)") +
+  theme_bw(base_size = 10) + 
+  theme(strip.background = element_rect(fill = "white"), strip.placement = "outside",
+        panel.grid = element_blank(), legend.position = "top",
+        axis.title.x = element_text(face = "italic"), axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
 ```
 
 #### Length of mRNA regions
@@ -540,38 +651,39 @@ CairoFonts(
 )
 ```
 
-Figure 4 -- TE changes
+Figure 5 -- TE changes
 ```{r}
 design <- "
 ADD
 BEE
-C##
+CFF
 "
-f4A <- p_TE_main + theme(legend.title = element_blank(), legend.justification = c(1, 0.5))
-f4_all <- (f4A + p_TE_pbp1d_mRNA + p_TE_mRNA_changes + p_riboseq + p_ripseq) +
+fcA <- p_TE_main + theme(legend.title = element_blank(), legend.justification = c(1, 0.5))
+fcf <- p_ripseq + theme(legend.position = "bottom")
+fc_all <- (fcA + p_TE_pbp1d_mRNA + p_TE_mRNA_changes + p_riboseq + p_ripseq2 + p_ripseq) +
   plot_layout(design = design) +
   plot_annotation(tag_levels = "A") & theme(plot.tag = element_text(size = 12, face = "bold"), plot.tag.position = "topleft")
-cairo_pdf(filename = "Fig4_TE_changes.pdf", family = "Arial", width = 7.5, height = 8.5) 
-f4_all
+cairo_pdf(filename = "Fig5_TE_changes.pdf", family = "Arial", width = 7.5, height = 8.5) 
+fc_all
 dev.off()
 ```
 
-Figure 5 -- TE and 5'end features
+Figure 6 -- TE and 5'end features
 ```{r}
 design <- "
 AABBBB
 CCDDEE
 "
-f5E <- plogo_down5 / plot_spacer()
-f5_all <- p5 + uorf$plot_res + ud5_A$plot_res + ud5_U$plot_res + f5E +
+f5E <- (plogo_down5 / plot_spacer())
+f5_all <- (p5 + uorf$plot_res + ud5_A$plot_res + ud5_U$plot_res + f5E) +
   plot_layout(design = design) +
   plot_annotation(tag_levels = "A") & theme(plot.tag = element_text(size = 12, face = "bold"), plot.tag.position = "topleft")
-cairo_pdf(filename = "Fig5_TE_5feats.pdf", family = "Arial", width = 7.5, height = 6.5) 
+cairo_pdf(filename = "Fig6_TE_5feats.pdf", family = "Arial", width = 7.5, height = 6.5) 
 f5_all
 dev.off()
 ```
 
-Figure 6 -- TE and 3'end features
+Figure 7 -- TE and 3'end features
 ```{r}
 design <- "
 AB
@@ -579,21 +691,38 @@ CE
 DF
 G#
 "
-f6_all <- pc + pm + p_re + p_ref + p3 + ud3_A$plot_res + plogo_up3 +
+f3_all <- (pc + pm + p_re + p_ref + p3 + ud3_A$plot_res + plogo_up3) +
   plot_layout(design = design, heights = c(1, 1, 1, 0.5)) +
   plot_annotation(tag_levels = "A") & theme(plot.tag = element_text(size = 12, face = "bold"), plot.tag.position = "topleft")
-cairo_pdf(filename = "Fig6_TE_3feats.pdf", family = "Arial", width = 5, height = 9.5) 
-f6_all
+cairo_pdf(filename = "Fig7_TE_3feats.pdf", family = "Arial", width = 5, height = 9.5) 
+f3_all
 dev.off()
 ```
 
-Figure S4 -- TE and 5' nucleotide features
+Figure S7 -- TE and 5' nucleotide features
 ```{r}
-S4_all <- p_nts_m / p_nts_p / p_nts_5 + 
+p_nt_all <- (p_nts_m / p_nts_p / p_nts_5) + 
   plot_layout(guides = "collect") +
   plot_annotation(tag_levels = "A") & theme(plot.tag = element_text(size = 12, face = "bold"), plot.tag.position = "topleft", legend.position = "top")
 
-cairo_pdf(filename = "FigS4.pdf", family = "Arial", width = 7.5, height = 5) 
-S4_all
+cairo_pdf(filename = "FigS7.pdf", family = "Arial", width = 7.5, height = 5) 
+p_nt_all
 dev.off()
 ```
+
+Figure S8 -- TE vs RIPseq vs transcript length
+```{r}
+p_rip_trl <- (p_ripseq3 / p_ripseq4) +
+  plot_layout(guides = "keep") +
+  plot_annotation(tag_levels = "A") & theme(plot.tag = element_text(size = 12, face = "bold"), plot.tag.position = "topleft", legend.position = "top")
+
+cairo_pdf(filename = "FigS8.pdf", family = "Arial", width = 7.5, height = 7.5) 
+p_rip_trl
+dev.off()
+```
+```{r}
+cairo_pdf(filename = "FigS8_TE_RIPseq_transcriptlength.pdf", family = "Arial", width = 7.5, height = 3.75) 
+p_ripseq3
+dev.off()
+```
+
