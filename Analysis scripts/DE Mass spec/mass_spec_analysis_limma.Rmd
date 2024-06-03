@@ -27,7 +27,7 @@ Correlation matrix (correlation between replicates and samples)
 cor.mat <- cor(dat, method = "pearson", use = "pairwise.complete.obs")
 ```
 
-DE by limma
+### DE by limma
 ```{r}
 library(limma)
 # Function to perform DE between two samples
@@ -58,9 +58,22 @@ eb_res2 <- bind_rows(eb_res, .id = "pair")
 write.csv(eb_res2, file = "pab1_mass_spec_limma.csv", row.names = FALSE, quote = FALSE)
 ```
 
-Gene ontology analysis of DE proteins in pab1Δpbp1Δ / pbp1Δ
+### Gene ontology analysis of DE proteins
 ```{r}
 source("../functions_misc.R")
+library(gprofiler2)
+library(Cairo)
+CairoFonts(
+  regular = "Arial:style=Regular",
+  bold = "Arial:style=Black",
+  italic = "Arial:style=Italic",
+  bolditalic = "Arial:style=Black Italic",
+  symbol = "Symbol"
+)
+```
+
+Gene ontology analysis of DE proteins in pab1Δpbp1Δ / pbp1Δ
+```{r}
 de <- add_sig_fc(df = eb_res$`pab1Δpbp1Δ / pbp1Δ`, pval_col = "adj.P.Val", pval_cutoff = 0.015, log2FC_col = "logFC", log2FC_cutoff = 0)
 de <- de[which(de$changes != "Unchanged"), ] 
 de <- de[which(!(de$Protein %in% c("PAB1", "PBP1", "URA3"))), ] 
@@ -69,7 +82,6 @@ de <- split(de, de$changes)
 de <- lapply(de, function(x) x$Protein)
 ```
 ```{r}
-library(gprofiler2)
 gostres <- gost(query = de, organism = "scerevisiae")
 
 # Export results as Excel
@@ -80,11 +92,41 @@ openxlsx::write.xlsx(list('Up' = xx$Up, 'Down' = xx$Down), file = "pab1_mass_spe
 
 # Plot results
 gp <- gostplot(gostres, capped = TRUE, interactive = FALSE)
-tohighlight <- c(gostres$result[grepl(pattern = "translation", x = gostres$result$term_name), ]$term_id,
-                 gostres$result[grepl(pattern = "ribosom", x = gostres$result$term_name), ]$term_id)
+tohighlight <- gostres$result %>%
+  group_by(query, source) %>%
+  slice_min(order_by = p_value, n = 3, with_ties = FALSE)
 gpp <- publish_gostplot(gp, highlight_terms = tohighlight, 
-                       width = 7.5, height = 4, filename = NULL)
+                       width = 8.5, height = 18, filename = "pab1_mass_spec_gene_ontology_pab1d-vs-pbp1d.pdf")
 
 gp2 <- gostplot(gostres, capped = TRUE, interactive = TRUE)
 htmlwidgets::saveWidget(gp2, file = "pab1_mass_spec_gene_ontology_pab1d-vs-pbp1d.html")
+```
+
+Gene ontology analysis of DE proteins in pbp1Δ / WT
+```{r}
+de <- add_sig_fc(df = eb_res$`pbp1Δ / WT`, pval_col = "adj.P.Val", pval_cutoff = 0.015, log2FC_col = "logFC", log2FC_cutoff = 0)
+de <- de[which(de$changes != "Unchanged"), ] 
+de <- de[which(!(de$Protein %in% c("PBP1", "URA3"))), ] 
+  # Exclude PBP1 because it was deleted. Exclude URA3 because it was used as a selection marker for PBP1 deletion.
+de <- split(de, de$changes)
+de <- lapply(de, function(x) x$Protein)
+```
+```{r}
+gostres <- gost(query = de, organism = "scerevisiae")
+
+# Export results as Excel
+xx <- gostres$result
+xx$parents <- as.character(xx$parents) # parents column is list. Convert to character before exporting
+xx <- split(xx, xx$query)
+openxlsx::write.xlsx(list('Up' = xx$Up, 'Down' = xx$Down), file = "pab1_mass_spec_gene_ontology_pbp1d-vs-WT.xlsx")
+
+# Plot results
+gp <- gostplot(gostres, capped = TRUE, interactive = FALSE)
+#tohighlight <- c(gostres$result[grepl(pattern = "translation", x = gostres$result$term_name), ]$term_id,
+ #                gostres$result[grepl(pattern = "ribosom", x = gostres$result$term_name), ]$term_id)
+gpp <- publish_gostplot(gp, highlight_terms = gostres$result$term_id, 
+                        width = 8.5, height = 11, filename = "pab1_mass_spec_gene_ontology_pbp1d-vs-WT.pdf")
+
+gp2 <- gostplot(gostres, capped = TRUE, interactive = TRUE)
+htmlwidgets::saveWidget(gp2, file = "pab1_mass_spec_gene_ontology_pbp1d-vs-WT.html")
 ```
