@@ -1,28 +1,28 @@
 IP,TE_change,IP_change,Freq,percent
-eIF4G1,Reference,Depleted in IP,1158,17.6121673003802
+eIF4G1,Reference,Depleted in IP,1158,20.6233303650935
 eIF4G1,Up,Depleted in IP,91,42.9245283018868
-eIF4G1,Down,Depleted in IP,20,7.75193798449612
-eIF4G1,Reference,Enriched in IP,1054,16.0304182509506
+eIF4G1,Down,Depleted in IP,20,8
+eIF4G1,Reference,Enriched in IP,1053,18.753339269813
 eIF4G1,Up,Enriched in IP,32,15.0943396226415
-eIF4G1,Down,Enriched in IP,61,23.6434108527132
-eIF4G1,Reference,Unchanged,4363,66.3574144486692
+eIF4G1,Down,Enriched in IP,61,24.4
+eIF4G1,Reference,Unchanged,3404,60.6233303650935
 eIF4G1,Up,Unchanged,89,41.9811320754717
-eIF4G1,Down,Unchanged,177,68.6046511627907
-eIF4G2,Reference,Depleted in IP,1238,18.828897338403
+eIF4G1,Down,Unchanged,169,67.6
+eIF4G2,Reference,Depleted in IP,1238,21.6282320055905
 eIF4G2,Up,Depleted in IP,104,49.0566037735849
-eIF4G2,Down,Depleted in IP,14,5.42635658914729
-eIF4G2,Reference,Enriched in IP,1212,18.4334600760456
+eIF4G2,Down,Depleted in IP,14,5.6
+eIF4G2,Reference,Enriched in IP,1210,21.1390635918938
 eIF4G2,Up,Enriched in IP,29,13.6792452830189
-eIF4G2,Down,Enriched in IP,91,35.2713178294574
-eIF4G2,Reference,Unchanged,4125,62.7376425855513
+eIF4G2,Down,Enriched in IP,91,36.4
+eIF4G2,Reference,Unchanged,3276,57.2327044025157
 eIF4G2,Up,Unchanged,79,37.2641509433962
-eIF4G2,Down,Unchanged,153,59.3023255813954
-Pab1p,Reference,Depleted in IP,711,10.8136882129278
-Pab1p,Up,Depleted in IP,34,16.0377358490566
-Pab1p,Down,Depleted in IP,17,6.58914728682171
-Pab1p,Reference,Enriched in IP,616,9.36882129277567
-Pab1p,Up,Enriched in IP,41,19.3396226415094
-Pab1p,Down,Enriched in IP,16,6.2015503875969
-Pab1p,Reference,Unchanged,5248,79.8174904942966
-Pab1p,Up,Unchanged,137,64.622641509434
-Pab1p,Down,Unchanged,225,87.2093023255814
+eIF4G2,Down,Unchanged,145,58
+Pab1,Reference,Depleted in IP,711,12.7923713566031
+Pab1,Up,Depleted in IP,34,16.1137440758294
+Pab1,Down,Depleted in IP,17,6.8
+Pab1,Reference,Enriched in IP,615,11.0651313422094
+Pab1,Up,Enriched in IP,41,19.4312796208531
+Pab1,Down,Enriched in IP,16,6.4
+Pab1,Reference,Unchanged,4232,76.1424973011875
+Pab1,Up,Unchanged,136,64.4549763033175
+Pab1,Down,Unchanged,217,86.8
