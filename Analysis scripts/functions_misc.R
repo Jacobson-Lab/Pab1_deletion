@@ -49,7 +49,7 @@ plot_volcano <- function(res, nn, xlabel = NULL, point_label = NULL) {
 }
 # ----------------------------------------------------------------
 # Function to make scatter plot of mRNA vs protein log2 fold changes
-plot_scatter <- function(combined_filter, facet_group = "pair", nnc) {
+plot_scatter <- function(combined_filter, facet_group = "pair", nnc, xlabel = NULL) {
   p <- ggplot(combined_filter, aes(x = log2FoldChange, y = logFC)) +
     geom_point(aes(color = sig_both), alpha = 0.25) +
     geom_hline(yintercept = 0, color = "black", linetype = "dashed") + geom_vline(xintercept = 0, color = "black", linetype = "dashed") +
@@ -57,7 +57,7 @@ plot_scatter <- function(combined_filter, facet_group = "pair", nnc) {
                      max.overlaps = Inf, label.padding = 0.1, min.segment.length = 0, show.legend = FALSE) +
     scale_color_manual(name = "mRNA vs. protein: ", 
                        values = c(Neither = "grey50", `Protein only` = "blue", `mRNA only` = "red", Both = "forestgreen")) +
-    xlab(expression("log"[2]*" fold change in mRNA abundance")) + ylab(expression("log"[2]*" fold change in protein abundance")) +
+    xlab(bquote(log[2] ~ "fold change" ~ .(xlabel))) + ylab(expression("log"[2]*" fold change in protein abundance")) +
     theme_bw(base_size = 10) + 
     theme(panel.grid = element_blank(), strip.background = element_rect(fill = "white"), strip.text = element_text(face = "italic"),
           legend.position = "top") +
@@ -71,6 +71,10 @@ plot_scatter <- function(combined_filter, facet_group = "pair", nnc) {
   }
   if (facet_group == "prot_group") {
     p <- p + facet_wrap(~prot_group)
+  }
+  else {
+    p <- p + facet_wrap(vars(!!sym(facet_group))) + 
+      stat_cor(method = "spearman", size = 7/.pt, label.x = -12.5, label.y = 1.8, cor.coef.name = "rho")
   }
   return(p)
 }
