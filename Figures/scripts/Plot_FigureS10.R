@@ -1,5 +1,5 @@
 # --------------------------------------------------
-# Figures S9
+# Figures S10
 # --------------------------------------------------
 library(dplyr)
 library(ggplot2)
@@ -86,7 +86,7 @@ CairoFonts(
   bolditalic = "Arial:style=Black Italic",
   symbol = "Symbol"
 )
-cairo_pdf(filename = "FigS9.pdf", family = "Arial", width = 7.5, height = 6.5) 
+cairo_pdf(filename = "FigS10.pdf", family = "Arial", width = 7.5, height = 6.5) 
 p
 dev.off()
 
