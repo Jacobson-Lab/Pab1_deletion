@@ -256,8 +256,7 @@ for (i in sheets) {
   costello2[[i]]$genes <- sub("$", "_mRNA", costello2[[i]]$genes)
 }
 
-analyze_costello <- function(ud, IP_data = "eIF4G1") {
-  cols = c("transcript", "l_tr", "l_cds", "l_utr5", "l_utr3", "rpkm_cds", "rpkm_ext", "rte_ext", "TE_change_PPvsP", "baseMean", "log2FoldChange")
+analyze_costello <- function(ud, IP_data = "eIF4G1", cols = c("transcript", "l_tr", "l_cds", "l_utr5", "l_utr3", "rpkm_cds", "rpkm_ext", "rte_ext", "TE_change_PPvsP", "baseMean", "log2FoldChange")) {
   udf_c2 <- left_join(ud[, cols], costello2[[IP_data]], by = c("transcript" = "genes"))
   udf_c2 <- udf_c2[which(!(is.na(udf_c2$logFC)) & !(is.na(udf_c2$log2FoldChange))), ]
   udf_c2$dir <- "Unchanged"
@@ -296,15 +295,25 @@ p_ripseq <- ggplot(aa, aes(x = TE_change, y = percent, fill = IP_change)) +
 ```
 ```{r}
 # Plot logFC
-bb <- bind_rows(lapply(res_ripseq, function(x) x$df), .id = "IP")
+colnames(PPvP)[c(2, 10)] <- c("transcript", "TE_change_PPvsP")
+bb <- sapply(names(costello2), function(x) analyze_costello(ud = PPvP, IP_data = x, cols = c("transcript", "baseMean", "log2FoldChange", "sig", "TE_change_PPvsP")), simplify = FALSE, USE.NAMES = TRUE)
+names(bb)[3] <- "Pab1" # Change Pab1p to Pab1
+bb <- bind_rows(lapply(bb, function(x) x$df), .id = "IP")
+bb$dir <- factor(bb$dir, levels = c("Depleted in IP", "Unchanged", "Enriched in IP"))
+bb$TE_change_PPvsP <- factor(bb$TE_change_PPvsP, levels = c("Down", "Unchanged", "Up"))
 p_ripseq_scatter <- ggplot(bb, aes(x = log2FoldChange, y = logFC)) + 
-  geom_point(alpha = 0.3, color = "grey50") + facet_grid(.~IP) + 
-  stat_cor(method = "spearman", cor.coef.name = "rho", size = 7/.pt) + geom_smooth(method = "lm") +
+  geom_point(alpha = 0.3, shape = 21, aes(fill = TE_change_PPvsP, color = dir)) + 
+  facet_grid(.~IP) + 
+  stat_cor(method = "spearman", cor.coef.name = "rho", size = 7/.pt) + geom_smooth(method = "lm", color = "grey20") +
   geom_hline(yintercept = 0, linetype = "dashed") + geom_vline(xintercept = 0, linetype = "dashed") +
+  scale_fill_manual(name = "TE changes: ", values = c(Up = "orange", Down = "purple", Unchanged = "grey50")) +
+  scale_color_manual(name = "RIP-seq: ", values = c(`Depleted in IP` = "#F8766D", Unchanged = "grey50", `Enriched in IP` = "#00B0F6")) +
+  #scale_shape_manual(name = "RIP-seq: ", values = c(`Depleted in IP` = 25, Unchanged = 1, `Enriched in IP` = 24)) +
   xlab(expression(atop(log[2] ~ "fold change in TE", italic("pab1Δpbp1Δ / pbp1Δ")))) +
   ylab(expression(log[2] ~ "fold change in RIP-seq")) +
   theme_bw(base_size = 10) + 
-  theme(strip.background = element_rect(fill = "white"), panel.grid = element_blank())
+  theme(strip.background = element_rect(fill = "white"), panel.grid = element_blank(), legend.position = "top") +
+  guides(colour = guide_legend(override.aes = list(alpha = 1)), fill = guide_legend(override.aes = list(alpha = 1)))
 ```
 ```{r}
 comp <- get_comparisons(bb, variable = "TE_change_PPvsP")
@@ -347,28 +356,6 @@ p_ripseq3 <- ggplot(bbf, aes(x = dir, y = l_tr)) +
   stat_pvalue_manual(data = stat.test6, label = "p.adj.signif", tip.length = 0.002, size = 7/.pt, vjust = 0.5, hide.ns = TRUE) +
   facet_nested(.~IP+TE_change_PPvsP, strip = strip_split(c("bottom", "top"))) +
   scale_fill_manual(name = "RIP-seq: ", values = c("#F8766D", "grey50", "#00B0F6")) +
-  scale_y_log10() +
-  xlab("") + ylab("mRNA length (nt)") +
-  theme_bw(base_size = 10) + 
-  theme(strip.background = element_rect(fill = "white"), strip.placement = "outside",
-        panel.grid = element_blank(), legend.position = "top",
-        axis.title.x = element_text(face = "italic"), axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
-```
-```{r}
-comp <- get_comparisons(bbf, variable = "TE_change_PPvsP")
-stat.test7 <- bbf %>% group_by(IP, dir) %>% 
-  wilcox_test(l_tr ~ TE_change_PPvsP, comparisons = comp, p.adjust.method = "BH")
-stat.test7 <- stat.test7 %>% add_significance() %>% add_xy_position()
-stat.test7$y.position <- rep(c(log10(6000), log10(7000), log10(8000)), times = 9)
-
-nn7 <- data.frame(table(TE_change_PPvsP = bbf$TE_change_PPvsP, IP = bbf$IP, dir = bbf$dir))
-
-p_ripseq4 <- ggplot(bbf, aes(x = TE_change_PPvsP, y = l_tr)) +
-  geom_boxplot(outlier.alpha = 0, aes(fill = TE_change_PPvsP)) +
-  geom_text(data = nn7, aes(x = TE_change_PPvsP, y = 200, label = Freq), size = 7/.pt, position = position_dodge(width = 0.2)) +
-  stat_pvalue_manual(data = stat.test7, label = "p.adj.signif", tip.length = 0.002, size = 7/.pt, vjust = 0.5, hide.ns = TRUE) +
-  facet_nested(.~IP+dir) +
-  scale_fill_manual(name = "TE changes: ", values = c(Up = "orange", Down = "purple", Ref. = "white")) +
   scale_y_log10() +
   xlab("") + ylab("mRNA length (nt)") +
   theme_bw(base_size = 10) + 
@@ -485,7 +472,7 @@ analyze_motif <- function(udf, condition = list(udf$utr5_n_tracts > 0), facet_la
   } else {
     message("Number of conditions and number of facet_label must match")
   }
-  res_list <- list(fisher_res = fisher_res, plot_res = p)
+  res_list <- list(fisher_res = fisher_res, plot_res = p, df_res = df)
   return(res_list)
 }
 ```
@@ -514,7 +501,7 @@ ud5_U$fisher_res
 uORFs in the 5'-UTR
 ```{r}
 uu <- colnames(udf)[grepl(pattern = "uORF", x = colnames(udf))]
-udfu <- udf[, c("TE_change_PPvsP", uu)]
+udfu <- udf[, c("TE_change_PPvsP", "log2FoldChange", uu)]
 udfu[is.na(udfu$uORF_count_overlap), ]$uORF_count_overlap <- 0
 udfu[is.na(udfu$uORF_count_upstream), ]$uORF_count_upstream <- 0
 udfu$uORF_count_all <- udfu$uORF_count_overlap + udfu$uORF_count_upstream
@@ -523,6 +510,38 @@ uorf <- analyze_motif(udf = udfu, condition = list(udfu$uORF_count_all > 0, udfu
                       facet_label = list("Any", "Upstream", "Overlapping"), 
                       legend_label = "uORF present: ")
 ```
+```{r}
+udfu2 <- udfu[which(udfu$TE_change_PPvsP == "Reference"), ]
+udfu2_any <- udfu2
+udfu2_any$uORF <- ifelse(udfu2_any$uORF_count_all > 0, yes = "Yes", no = "No")
+udfu2_upstream <- udfu2
+udfu2_upstream$uORF <- ifelse(udfu2_upstream$uORF_count_upstream > 0, yes = "Yes", no = "No")
+udfu2_overlap <- udfu2
+udfu2_overlap$uORF <- ifelse(udfu2_overlap$uORF_count_overlap > 0, yes = "Yes", no = "No")
+udfu3 <- bind_rows(list(Any = udfu2_any, Upstream = udfu2_upstream, Overlapping = udfu2_overlap), .id = "type")
+
+ks_results <- list()
+for (x in c("Any", "Upstream", "Overlapping")) {
+  ks_results[[x]] <- ks.test(x = udfu3[which(udfu3$type == x & udfu3$uORF == "Yes"), ]$log2FoldChange, 
+                             y = udfu3[which(udfu3$type == x & udfu3$uORF == "No"), ]$log2FoldChange)$p.value
+}
+ks_results <- as.data.frame(unlist(ks_results))
+ks_results$type <- row.names(ks_results)
+colnames(ks_results)[1] <- "p_value"
+
+uorf_cdf <- ggplot(udfu3, aes(x = log2FoldChange)) + 
+  stat_ecdf(geom = "step", aes(color = uORF)) +
+  geom_text(data = ks_results, aes(x = -2.5, y = 0.9, label = paste0('italic(p) == ', signif(p_value, digits = 3))), 
+            size = 7/.pt, hjust = 0, parse = TRUE) +
+  facet_wrap(~type, nrow = 1) +
+  scale_color_manual(name = "uORF present: ", values = c(Yes = "forestgreen", No = "grey50"), limits = c("Yes", "No")) +
+  xlab(expression(atop(log[2] ~ "fold change in TE", italic("pab1Δpbp1Δ / pbp1Δ")))) + 
+  ylab("Cumulative Density") +
+  theme_bw(base_size = 10) + 
+  theme(strip.background = element_rect(fill = "white"), panel.grid = element_blank(), 
+        legend.position = "top")
+```
+
 
 STREME results
 ```{r}
@@ -607,11 +626,11 @@ plot_compare_chisq <- function(ntdf, pos_to_plot, lims = c(-1.2, 1.2), xlabel = 
   ntdf2$pos <- factor(ntdf2$pos, levels = levs)
   p <- ggplot(ntdf2, 
               aes(x = Var2, fill = log2_fraction_ratio, y = TE_change_PPvsP)) + 
-    geom_tile(aes(width = hw, height = hw, size = sig)) +
+    geom_tile(aes(width = hw, height = hw, linewidth = sig)) +
     geom_point(aes(alpha = sig_UpvsDown), shape = 8, size = 1) + 
     scale_fill_gradient2(name = expression(paste(log[2], " relative proportion to Reference")), 
                          low = "blue", mid = "white", high = "red", midpoint = 0, limits = lims) +
-    scale_size_manual(name = "Group vs. Reference:", values = c(`p < 0.05` = 0, ns = 3)) +
+    scale_linewidth_manual(name = "Group vs. Reference:", values = c(`p < 0.05` = 0, ns = 3)) +
     scale_alpha_manual(name = "Up vs. Down:", values = c(`p < 0.05` = 1, ns = 0)) +
     scale_y_discrete(limits = rev) +
     facet_grid(.~pos, scales = "free_x", space = "free_x") + xlab(xlabel) + ylab("") +
@@ -621,9 +640,9 @@ plot_compare_chisq <- function(ntdf, pos_to_plot, lims = c(-1.2, 1.2), xlabel = 
           strip.background = element_rect(fill = "white"), panel.spacing = unit(0, "in")) +
     guides(fill = guide_colourbar(order = 1, barwidth = unit(5, "cm"), barheight = unit(0.25, "cm"), 
                                   title.position = "top"), 
-           size = guide_legend(order = 2, override.aes = list(color = "white"), 
-                               keywidth = unit(0.3, "cm"), keyheight = unit(0.3, "cm"),
-                               title.position = "top"),
+           linewidth = guide_legend(order = 2, override.aes = list(color = "white"), 
+                                    keywidth = unit(0.3, "cm"), keyheight = unit(0.3, "cm"),
+                                    title.position = "top"),
            alpha = guide_legend(order = 3, keywidth = unit(0.3, "cm"), keyheight = unit(0.3, "cm"), 
                                 title.position = "top"))
   return(p)
@@ -701,25 +720,25 @@ dev.off()
 
 Figure S7 -- TE and 5' nucleotide features
 ```{r}
-p_nt_all <- (p_nts_m / p_nts_p / p_nts_5) + 
-  plot_layout(guides = "collect") +
-  plot_annotation(tag_levels = "A") & theme(plot.tag = element_text(size = 12, face = "bold"), plot.tag.position = "topleft", legend.position = "top")
+p_ripseq_scatter2 <- p_ripseq_scatter + 
+  theme(legend.position = "right") + 
+  guides(color = guide_legend(reverse = TRUE, override.aes = list(alpha = 1)), fill = guide_legend(reverse = TRUE, override.aes = list(alpha = 1)))
 
-cairo_pdf(filename = "FigS7.pdf", family = "Arial", width = 7.5, height = 5) 
-p_nt_all
+uorf_cdf2 <- uorf_cdf + 
+  theme(legend.position = "right")
+
+p_nt_all <- (p_nts_m / p_nts_p / p_nts_5) + 
+  plot_layout(guides = "collect") & theme(plot.tag = element_text(size = 12, face = "bold"), plot.tag.position = "topleft", legend.position = "top")
+
+p_te_supp <- cowplot::plot_grid(p_ripseq_scatter2, uorf_cdf2, p_nt_all, 
+                                ncol = 1, rel_heights = c(2.75, 2.2, 3.8), labels = "AUTO", label_size = 12, label_fontface = "bold")
+
+cairo_pdf(filename = "FigS7.pdf", family = "Arial", width = 7.5, height = 8.75) 
+p_te_supp
 dev.off()
 ```
 
 Figure S8 -- TE vs RIPseq vs transcript length
-```{r}
-p_rip_trl <- (p_ripseq3 / p_ripseq4) +
-  plot_layout(guides = "keep") +
-  plot_annotation(tag_levels = "A") & theme(plot.tag = element_text(size = 12, face = "bold"), plot.tag.position = "topleft", legend.position = "top")
-
-cairo_pdf(filename = "FigS8.pdf", family = "Arial", width = 7.5, height = 7.5) 
-p_rip_trl
-dev.off()
-```
 ```{r}
 cairo_pdf(filename = "FigS8_TE_RIPseq_transcriptlength.pdf", family = "Arial", width = 7.5, height = 3.75) 
 p_ripseq3
