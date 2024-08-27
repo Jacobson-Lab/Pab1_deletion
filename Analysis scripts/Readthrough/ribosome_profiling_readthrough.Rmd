@@ -9,6 +9,8 @@ output: html_document
 library(dplyr)
 library(data.table)
 library(riboWaltz)
+library(ggplot2)
+library(ggpubr)
 ```
 
 ### riboWaltz
@@ -134,5 +136,108 @@ Readthrough efficiency
 re <- lapply(comp, rt_efficiency, cds_m5 = 15, cds_m3 = 0)
 redf <- bind_rows(re, .id = "strain")
 write.csv(redf, file = "pab1_strains_readthrough_efficiency.csv", row.names = FALSE, quote = FALSE)
+```
+
+### Out-of-frame translation
+
+##### 3′ UTR footprints vs. out-of-frame ribosomes in the 3′ region of the CDS
+```{r}
+pab1_reads_psite_list2 <- list()
+pab1_reads_psite_list2[["WT"]] <- bind_rows(pab1_reads_psite_list[1:3])
+pab1_reads_psite_list2[["pbp1d"]] <- bind_rows(pab1_reads_psite_list[4:6])
+pab1_reads_psite_list2[["pab1d"]] <- bind_rows(pab1_reads_psite_list[7:9])
+
+rcdf <- lapply(pab1_reads_psite_list2, read_count, annotation = annotation, cds_m5 = 15, cds_m3 = 0, frame_ = "all", utr3_p = 15)
+re <- lapply(comp, rt_efficiency, cds_m5 = 15, cds_m3 = 0)
+
+count_reads <- function(dt_sub) {
+  dt_count <- data.frame(table(transcript = dt_sub$transcript, frame = dt_sub$frame))
+  dt_count <- left_join(dt_count, annotation, by = "transcript")
+  dt_count <- dt_count[which(dt_count$transcript %in% onlyann), ]
+  return(dt_count)
+}
+
+calculate_cds_frame_fraction <- function(dt, re, nt = 30) {
+  cds_30 <- count_reads(dt[psite_region == "cds" & psite_from_stop > -nt & psite_from_stop < 0, ])
+  cds_30_frame <- reshape2::dcast(cds_30, transcript ~ frame, value.var = "Freq")
+  cds_30_frame$total <- rowSums(cds_30_frame[, c(2:4)])
+  cds_30_frame$inframe_fraction <- cds_30_frame$`0` / cds_30_frame$total 
+  cds_30_frame$outofframe_fraction <- 1 - cds_30_frame$inframe_fraction
+  res_df <- left_join(cds_30_frame, re, by = "transcript")
+  return(res_df)
+}
+
+wt <- calculate_cds_frame_fraction(dt = pab1_reads_psite_list2$WT, re = re$WT)
+pbp1d <- calculate_cds_frame_fraction(dt = pab1_reads_psite_list2$pbp1d, re = re$pbp1d)
+pab1d <- calculate_cds_frame_fraction(dt = pab1_reads_psite_list2$pab1d, re = re$pab1d)
+
+res_df <- bind_rows(list(WT = wt, pbp1d = pbp1d, pab1d = pab1d), .id = "strain")
+res_df$strain <- recode_factor(res_df$strain, WT = "WT", pbp1d = "pbp1\u0394", pab1d = "pab1\u0394pbp1\u0394")
+```
+```{r}
+res_df_filter <- res_df[which(res_df$rpkm_cds > 2 & res_df$rpkm_utr3 > 0.1 & res_df$total > 30), ]
+res_df_filter_n <- data.frame(table(strain = res_df_filter$strain))
+p_outofframe1 <- ggplot(res_df_filter, aes(x = rpkm_utr3, y = outofframe_fraction)) + 
+  geom_point(alpha = 0.25) +
+  geom_smooth() +
+  stat_cor(method = "spearman", size = 7/.pt, label.x.npc = "left", hjust = 0, cor.coef.name = "rho") +
+  geom_text(data = res_df_filter_n, aes(x = 0.1, y = -0.1, label = paste0("n = ", Freq)), size = 7/.pt, hjust = 0) +
+  facet_grid(.~strain) +
+  scale_x_log10() +
+  xlab("3'-UTR footprint density (RPKM)") + ylab("Fraction of out-of-frame footprints\nin the last 30 nt of CDS") +
+  theme_bw() + 
+  theme(strip.background = element_rect(fill = "white"), strip.text = element_text(face = "italic"))
+```
+
+##### 3′ UTR footprints vs. out-of-frame stop codons within the CDS
+
+```{r}
+codons <- c("TAA", "TAG", "TGA")
+f1 <- read.table("stops_in_CDS/stop_in_CDS_frame1.txt", header = TRUE, sep = "\t")
+f2 <- read.table("stops_in_CDS/stop_in_CDS_frame2.txt", header = TRUE, sep = "\t")
+f12 <- full_join(f1[, c("transcript", codons)], f2[, c("transcript", codons)], by = "transcript", suffix = c("_frame1", "_frame2"))
+f12[is.na(f12)] <- 0
+f12$have_stop <- ifelse(test = rowSums(f12[, -1]) > 0, yes = "Yes", no = "No")
+f12_filter <- f12[which(f12$transcript %in% onlyann), ]
+table(f12_filter$have_stop)
+```
+```{r}
+res_df2 <- left_join(res_df, f12_filter[, c("transcript", "have_stop")], by = "transcript")
+res_df2_filter <- res_df2[which(res_df2$rpkm_cds > 2 & res_df2$rpkm_utr3 > 0.1), ]
+res_df2_filter$have_stop <- factor(res_df2_filter$have_stop, levels = c("Yes", "No"))
+res_df2_filter_n <- data.frame(table(strain = res_df2_filter$strain, have_stop = res_df2_filter$have_stop))
+
+p_outofframe3 <- ggplot(res_df2_filter, aes(x = have_stop, y = rpkm_utr3)) + 
+  geom_boxplot(outlier.alpha = 0.25) +
+  stat_compare_means(method = "wilcox.test", label = "p.format", hjust = 0.5, vjust = 1, label.x.npc = "middle", size = 7/.pt) +
+  geom_text(data = res_df2_filter_n, aes(x = have_stop, y = 0.075, label = paste0("n = ", Freq)), size = 7/.pt, hjust = 0.5) +
+  facet_grid(.~strain) +
+  scale_y_log10() +
+  ylab("3'-UTR footprint density (RPKM)") + xlab("Out-of-frame stop codon(s) in CDS") +
+  theme_bw() + 
+  theme(strip.background = element_rect(fill = "white"), strip.text = element_text(face = "italic"))
+```
+
+### Combine and export plots
+```{r}
+library(patchwork)
+library(Cairo)
+CairoFonts(
+  regular = "Arial:style=Regular",
+  bold = "Arial:style=Black",
+  italic = "Arial:style=Italic",
+  bolditalic = "Arial:style=Black Italic",
+  symbol = "Symbol"
+)
+```
+
+Figure S9 -- Out-of-frame
+```{r}
+p_oof <- (p_outofframe1 / p_outofframe3) +
+  plot_annotation(tag_levels = "A") & theme(plot.tag = element_text(size = 12, face = "bold"), plot.tag.position = "topleft", legend.position = "top")
+
+cairo_pdf(filename = "FigS9_outofframe.pdf", family = "Arial", width = 7.5, height = 5.5) 
+p_oof
+dev.off()
 ```
 
