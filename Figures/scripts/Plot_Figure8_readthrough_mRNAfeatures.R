@@ -53,10 +53,10 @@ prep_imp <- function(all.imp_df) {
                                     random_factor = "Random factor", random_num = "Random number")
   # Group features for faceting
   all.imp_df$xgroup <- NA
-  all.imp_df$xgroup <- gsub("tunnel_lower_.*", "aa 20-30\nfrom PTC", all.imp_df$feature)
-  all.imp_df$xgroup <- gsub("tunnel_central_.*", "aa 13-19\nfrom PTC", all.imp_df$xgroup)
-  all.imp_df$xgroup <- gsub("tunnel_constriction_.*", "aa 10-12\nfrom PTC", all.imp_df$xgroup)
-  all.imp_df$xgroup <- gsub("tunnel_upper_.*", "aa 3-9\nfrom PTC", all.imp_df$xgroup)
+  all.imp_df$xgroup <- gsub("tunnel_lower_.*", "aa 20-30\nfrom stop", all.imp_df$feature)
+  all.imp_df$xgroup <- gsub("tunnel_central_.*", "aa 13-19\nfrom stop", all.imp_df$xgroup)
+  all.imp_df$xgroup <- gsub("tunnel_constriction_.*", "aa 10-12\nfrom stop", all.imp_df$xgroup)
+  all.imp_df$xgroup <- gsub("tunnel_upper_.*", "aa 3-9\nfrom stop", all.imp_df$xgroup)
   all.imp_df$xgroup <- gsub("aa_m.*", "", all.imp_df$xgroup)
   all.imp_df$xgroup <- gsub("nt_m.*", " nt from stop ", all.imp_df$xgroup)
   all.imp_df$xgroup <- gsub("stop_codon", " ", all.imp_df$xgroup)
@@ -67,7 +67,7 @@ prep_imp <- function(all.imp_df) {
   all.imp_df$xgroup <- gsub("nis_stop", "   ", all.imp_df$xgroup)
   all.imp_df$xgroup <- gsub("dist_bp", "2°", all.imp_df$xgroup)
   all.imp_df$xgroup <- gsub("random_.*", "NC", all.imp_df$xgroup)
-  all.imp_df$xgroup <- factor(all.imp_df$xgroup, levels = c("aa 20-30\nfrom PTC", "aa 13-19\nfrom PTC", "aa 10-12\nfrom PTC", "aa 3-9\nfrom PTC", "", " nt from stop ", " ", "nt from stop", "  ", "   ", "nt from 3' end", "NC"))
+  all.imp_df$xgroup <- factor(all.imp_df$xgroup, levels = c("aa 20-30\nfrom stop", "aa 13-19\nfrom stop", "aa 10-12\nfrom stop", "aa 3-9\nfrom stop", "", " nt from stop ", " ", "nt from stop", "  ", "   ", "nt from 3' end", "NC"))
   # Group features for faceting nascent peptide
   all.imp_df$xgroup2 <- NA
   all.imp_df$xgroup2 <- gsub("tunnel.*", "Nascent peptide in the exit tunnel", all.imp_df$feature)
